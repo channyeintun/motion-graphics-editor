@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import {
   ArrowDown,
@@ -24,6 +24,7 @@ export function AppShell() {
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const playbackTimeRef = useRef(0);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [timelineZoom, setTimelineZoom] = useState(140);
 
   const project = useEditorStore((state) => state.project);
   const currentTime = useEditorStore((state) => state.currentTime);
@@ -263,6 +264,27 @@ export function AppShell() {
       project.duration * 1000 + 150,
     );
   };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code === "Space") {
+        event.preventDefault();
+        setPlaying(!isPlaying);
+        return;
+      }
+
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedKeyframeId) {
+        event.preventDefault();
+        deleteKeyframe(selectedKeyframeId);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [deleteKeyframe, isPlaying, selectedKeyframeId, setPlaying]);
 
   return (
     <main className="min-h-screen bg-[#0a0b10] text-slate-100">
@@ -582,6 +604,17 @@ export function AppShell() {
               >
                 {loopPlayback ? "Loop On" : "Loop Off"}
               </button>
+              <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+                Zoom
+                <input
+                  type="range"
+                  min="80"
+                  max="240"
+                  step="10"
+                  value={timelineZoom}
+                  onChange={(event) => setTimelineZoom(Number(event.target.value))}
+                />
+              </label>
               <button
                 type="button"
                 onClick={handleExport}
@@ -610,8 +643,9 @@ export function AppShell() {
             layers={project.layers}
             assets={project.assets}
             duration={project.duration}
+            zoom={timelineZoom}
             currentTime={currentTime}
-            selectedLayerId={selectedId}
+            selectedLayerIds={selectedLayerIds}
             selectedClipId={selectedClipId}
             selectedKeyframeId={selectedKeyframeId}
             onSelectLayer={selectLayer}

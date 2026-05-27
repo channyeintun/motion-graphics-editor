@@ -13,7 +13,7 @@ type EditorState = {
   currentTime: number;
   isPlaying: boolean;
   loopPlayback: boolean;
-  selectLayer: (layerId: string | null) => void;
+  selectLayer: (layerId: string | null, additive?: boolean) => void;
   selectClip: (clipId: string | null) => void;
   selectKeyframe: (keyframeId: string | null) => void;
   replaceProject: (project: Project) => void;
@@ -68,8 +68,23 @@ export const useEditorStore = create<EditorState>((set) => ({
   currentTime: 0,
   isPlaying: false,
   loopPlayback: true,
-  selectLayer: (layerId) => {
-    set({ selectedLayerIds: layerId ? [layerId] : [] });
+  selectLayer: (layerId, additive = false) => {
+    set((state) => {
+      if (!layerId) {
+        return { selectedLayerIds: [] };
+      }
+
+      if (!additive) {
+        return { selectedLayerIds: [layerId] };
+      }
+
+      const exists = state.selectedLayerIds.includes(layerId);
+      return {
+        selectedLayerIds: exists
+          ? state.selectedLayerIds.filter((selectedLayerId) => selectedLayerId !== layerId)
+          : [...state.selectedLayerIds, layerId],
+      };
+    });
   },
   selectClip: (clipId) => {
     set({ selectedClipId: clipId });

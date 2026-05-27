@@ -23,3 +23,4 @@
 - Toolbar layer creation, inspector editing, visibility/lock, and reorder controls are active.
 - Playback, loop, audio import, waveform rendering, and audio sync are now active.
 - Export now includes JSON, PNG, and a preview-canvas WebM prototype. MP4 remains an evaluated later path.
+- Phase 7 is partially implemented: timeline zoom, additive timeline selection, keyboard shortcuts, and existing center snapping are in place.
