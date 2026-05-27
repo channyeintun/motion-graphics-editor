@@ -10,7 +10,7 @@
 - [x] Phase 5: Text and shape creation plus inspector and layer controls.
 - [x] Phase 6: Playback clock, audio import, waveform, and sync.
 - [ ] Phase 7: Undo/redo, shortcuts, snapping, zoom, multi-select, and responsive polish.
-- [ ] Phase 8: PNG export, JSON export, WebM prototype, and MP4 path note.
+- [x] Phase 8: PNG export, JSON export, WebM prototype, and MP4 path note.
 
 ## Notes
 
@@ -22,3 +22,4 @@
 - Keyframes now drive sampled preview animation with easing and draggable timeline markers.
 - Toolbar layer creation, inspector editing, visibility/lock, and reorder controls are active.
 - Playback, loop, audio import, waveform rendering, and audio sync are now active.
+- Export now includes JSON, PNG, and a preview-canvas WebM prototype. MP4 remains an evaluated later path.

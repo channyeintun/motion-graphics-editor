@@ -23,6 +23,7 @@ export function AppShell() {
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const playbackTimeRef = useRef(0);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const project = useEditorStore((state) => state.project);
   const currentTime = useEditorStore((state) => state.currentTime);
@@ -212,6 +213,57 @@ export function AppShell() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportPng = () => {
+    const canvas = previewCanvasRef.current;
+
+    if (!canvas) {
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.png`;
+    link.click();
+  };
+
+  const handleExportWebm = () => {
+    const canvas = previewCanvasRef.current;
+
+    if (!canvas || typeof MediaRecorder === "undefined") {
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(canvas.captureStream(project.fps), {
+      mimeType: "video/webm",
+    });
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunks.push(event.data);
+      }
+    };
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.webm`;
+      link.click();
+      URL.revokeObjectURL(url);
+    };
+
+    seek(0);
+    setPlaying(true);
+    recorder.start();
+    window.setTimeout(
+      () => {
+        setPlaying(false);
+        recorder.stop();
+      },
+      project.duration * 1000 + 150,
+    );
+  };
+
   return (
     <main className="min-h-screen bg-[#0a0b10] text-slate-100">
       <input
@@ -295,6 +347,9 @@ export function AppShell() {
               selectedId={selectedId}
               onSelect={selectLayer}
               onMove={moveLayerObject}
+              onCanvasReady={(canvas) => {
+                previewCanvasRef.current = canvas;
+              }}
             />
           </div>
 
@@ -533,6 +588,20 @@ export function AppShell() {
                 className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
               >
                 Export JSON
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPng}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+              >
+                PNG
+              </button>
+              <button
+                type="button"
+                onClick={handleExportWebm}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+              >
+                WebM
               </button>
             </div>
           </div>

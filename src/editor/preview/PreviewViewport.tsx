@@ -8,6 +8,7 @@ type PreviewViewportProps = {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, nextX: number, nextY: number) => void;
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 };
 
 type DragState = {
@@ -16,7 +17,13 @@ type DragState = {
   offsetY: number;
 };
 
-export function PreviewViewport({ objects, selectedId, onSelect, onMove }: PreviewViewportProps) {
+export function PreviewViewport({
+  objects,
+  selectedId,
+  onSelect,
+  onMove,
+  onCanvasReady,
+}: PreviewViewportProps) {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const selectedObject = objects.find((object) => object.id === selectedId) ?? null;
 
@@ -53,6 +60,9 @@ export function PreviewViewport({ objects, selectedId, onSelect, onMove }: Previ
           camera={{ position: [0, 0, 20], zoom: 72 }}
           dpr={[1, 2]}
           className="rounded-[22px]"
+          onCreated={(state) => {
+            onCanvasReady?.(state.gl.domElement);
+          }}
           onPointerUp={stopDragging}
           onPointerLeave={stopDragging}
         >
