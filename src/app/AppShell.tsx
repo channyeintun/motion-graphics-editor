@@ -1,45 +1,75 @@
-import { useMemo, useState } from "react";
-import type { PreviewObject } from "../editor/model/preview";
-import { previewObjects } from "../editor/model/preview";
+import { useEffect, useEffectEvent, useMemo, useRef } from "react";
+import type { ChangeEvent } from "react";
+import { Download, FileUp, Save } from "lucide-react";
+import { toPreviewObject } from "../editor/model/preview";
+import type { Project } from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
+import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 
 const toolbarButtons = ["Select", "Text", "Shape", "Image", "Audio"];
 
 export function AppShell() {
-  const [objects, setObjects] = useState(previewObjects);
-  const [selectedId, setSelectedId] = useState<string | null>(previewObjects[0]?.id ?? null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const project = useEditorStore((state) => state.project);
+  const selectedLayerIds = useEditorStore((state) => state.selectedLayerIds);
+  const selectLayer = useEditorStore((state) => state.selectLayer);
+  const moveLayerObject = useEditorStore((state) => state.moveLayerObject);
+  const replaceProject = useEditorStore((state) => state.replaceProject);
 
-  const selectedObject = useMemo(
-    () => objects.find((object) => object.id === selectedId) ?? null,
-    [objects, selectedId],
+  const previewObjects = useMemo(
+    () => project.layers.map(toPreviewObject).filter((object) => object !== null),
+    [project.layers],
   );
 
-  const timelineTracks = useMemo(
-    () =>
-      objects.map((object) => ({
-        name: object.name,
-        type: object.type === "text" ? "Text" : "Shape",
-        color: object.type === "text" ? "bg-violet-500/80" : "bg-cyan-400/80",
-      })),
-    [objects],
-  );
+  const selectedId = selectedLayerIds[0] ?? null;
+  const selectedObject = previewObjects.find((object) => object.id === selectedId) ?? null;
 
-  const moveObject = (id: string, nextX: number, nextY: number) => {
-    setObjects((currentObjects) =>
-      currentObjects.map((object) =>
-        object.id === id
-          ? {
-              ...object,
-              x: nextX,
-              y: nextY,
-            }
-          : object,
-      ),
-    );
+  const saveProject = useEffectEvent((nextProject: Project) => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextProject));
+  });
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      saveProject(project);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(handle);
+    };
+  }, [project]);
+
+  const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const contents = await file.text();
+    replaceProject(JSON.parse(contents) as Project);
+    event.target.value = "";
+  };
+
+  const handleExport = () => {
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
     <main className="min-h-screen bg-[#0a0b10] text-slate-100">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={handleImport}
+      />
+
       <div className="flex min-h-screen flex-col gap-3 p-3 md:p-4">
         <section className="grid min-h-[64vh] flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#0f1118] shadow-2xl shadow-black/30">
@@ -55,15 +85,33 @@ export function AppShell() {
               ))}
             </div>
 
-            <div className="absolute right-4 top-4 z-20 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-xs text-slate-300 backdrop-blur">
-              1080 x 1080 • 30 FPS
+            <div className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-xs text-slate-300 backdrop-blur">
+              <span>
+                {project.width} x {project.height} • {project.fps} FPS
+              </span>
+              <button
+                type="button"
+                onClick={handleExport}
+                className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:bg-white/10"
+                title="Export project JSON"
+              >
+                <Download className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:bg-white/10"
+                title="Import project JSON"
+              >
+                <FileUp className="h-3.5 w-3.5" />
+              </button>
             </div>
 
             <PreviewViewport
-              objects={objects}
+              objects={previewObjects}
               selectedId={selectedId}
-              onSelect={setSelectedId}
-              onMove={moveObject}
+              onSelect={selectLayer}
+              onMove={moveLayerObject}
             />
           </div>
 
@@ -72,34 +120,24 @@ export function AppShell() {
               <div>
                 <p className="text-xs uppercase tracking-[0.32em] text-slate-400">Inspector</p>
                 <h2 className="mt-2 text-lg font-semibold text-white">
-                  {selectedObject?.name ?? "Project"}
+                  {selectedObject?.name ?? project.name}
                 </h2>
               </div>
               <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-300">
-                {selectedObject ? "Selected" : "Ready"}
+                {selectedObject ? "Selected" : "Autosave"}
               </span>
             </div>
 
             <div className="mt-4 space-y-4 text-sm text-slate-300">
               <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Canvas</p>
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <label className="space-y-2">
-                    <span className="text-xs text-slate-400">Width</span>
-                    <input
-                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-                      value="1080"
-                      readOnly
-                    />
-                  </label>
-                  <label className="space-y-2">
-                    <span className="text-xs text-slate-400">Height</span>
-                    <input
-                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2"
-                      value="1080"
-                      readOnly
-                    />
-                  </label>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Project</p>
+                  <Save className="h-4 w-4 text-emerald-300" />
+                </div>
+                <div className="mt-3 space-y-3">
+                  <DetailRow label="Storage" value="Local" />
+                  <DetailRow label="Duration" value={`${project.duration}s`} />
+                  <DetailRow label="Layers" value={`${project.layers.length}`} />
                 </div>
               </div>
 
@@ -119,7 +157,7 @@ export function AppShell() {
                   </div>
                 ) : (
                   <p className="mt-3 text-sm text-slate-400">
-                    Select an object in the preview or timeline to edit its properties here.
+                    Select an object in the preview or timeline to inspect it.
                   </p>
                 )}
               </div>
@@ -148,9 +186,10 @@ export function AppShell() {
               </button>
               <button
                 type="button"
+                onClick={handleExport}
                 className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
               >
-                Export
+                Export JSON
               </button>
             </div>
           </div>
@@ -163,38 +202,32 @@ export function AppShell() {
               <div className="px-4 py-3 uppercase tracking-[0.32em]">0s 1s 2s 3s 4s 5s</div>
             </div>
 
-            {timelineTracks.map((track, index) => {
-              const object = objects[index] as PreviewObject | undefined;
-
-              return (
-                <div
-                  key={track.name}
-                  className="grid grid-cols-[220px_minmax(720px,1fr)] border-b border-white/6 last:border-b-0"
-                >
-                  <div className="flex items-center justify-between border-r border-white/6 px-4 py-4">
-                    <div>
-                      <p className="text-sm font-medium text-white">{track.name}</p>
-                      <p className="text-xs text-slate-500">{track.type}</p>
-                    </div>
-                    <span className="h-2.5 w-2.5 rounded-full bg-white/35" />
+            {project.layers.map((layer) => (
+              <div
+                key={layer.id}
+                className="grid grid-cols-[220px_minmax(720px,1fr)] border-b border-white/6 last:border-b-0"
+              >
+                <div className="flex items-center justify-between border-r border-white/6 px-4 py-4">
+                  <div>
+                    <p className="text-sm font-medium text-white">{layer.name}</p>
+                    <p className="text-xs text-slate-500">{layer.type}</p>
                   </div>
-                  <div className="relative px-4 py-4">
-                    <div className="absolute inset-y-0 left-[22%] w-px bg-white/12" />
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(object?.id ?? null)}
-                      className={`h-12 w-full rounded-2xl border border-white/10 text-left transition hover:brightness-110 ${track.color} ${object?.id === selectedId ? "ring-2 ring-violet-300/70" : ""}`}
-                    >
-                      <span className="block px-4 py-3 text-sm font-medium text-white/95">
-                        {object
-                          ? `Preview X ${object.x.toFixed(2)} • Y ${object.y.toFixed(2)}`
-                          : "Clip"}
-                      </span>
-                    </button>
-                  </div>
+                  <span className="h-2.5 w-2.5 rounded-full bg-white/35" />
                 </div>
-              );
-            })}
+                <div className="relative px-4 py-4">
+                  <div className="absolute inset-y-0 left-[22%] w-px bg-white/12" />
+                  <button
+                    type="button"
+                    onClick={() => selectLayer(layer.id)}
+                    className={`h-12 w-full rounded-2xl border border-white/10 text-left transition hover:brightness-110 ${layer.type === "text" ? "bg-violet-500/80" : "bg-cyan-400/80"} ${layer.id === selectedId ? "ring-2 ring-violet-300/70" : ""}`}
+                  >
+                    <span className="block px-4 py-3 text-sm font-medium text-white/95">
+                      {layer.clips[0]?.name ?? "Clip"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       </div>

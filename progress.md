@@ -4,7 +4,7 @@
 
 - [x] Phase 0: Project setup, TailwindCSS, VitePlus shell, and execution tracking.
 - [x] Phase 1: Three.js preview stage with selectable sample objects.
-- [ ] Phase 2: Project model, Zustand editor store, autosave, and JSON import/export.
+- [x] Phase 2: Project model, Zustand editor store, autosave, and JSON import/export.
 - [ ] Phase 3: Timeline MVP with ruler, playhead, seek, scrub, clip move, and trim.
 - [ ] Phase 4: Keyframes, interpolation, easing, and animated preview sampling.
 - [ ] Phase 5: Text and shape creation plus inspector and layer controls.
@@ -17,3 +17,4 @@
 - Project scaffolded with `vp` at the repository root.
 - TailwindCSS is the styling system.
 - Type checking stays on the VitePlus TypeScript Go path via `vp check` and `tsgolint`.
+- Editor project state now autosaves to local storage and supports JSON import/export.
