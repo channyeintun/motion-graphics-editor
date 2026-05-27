@@ -19,6 +19,7 @@ type EditorState = {
   replaceProject: (project: Project) => void;
   addTextLayer: () => void;
   addShapeLayer: () => void;
+  addAudioLayer: (name: string, src: string, waveform: number[], duration: number) => void;
   renameLayer: (layerId: string, name: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerLock: (layerId: string) => void;
@@ -152,6 +153,66 @@ export const useEditorStore = create<EditorState>((set) => ({
                   name: "Shape Clip",
                   start: 0,
                   end: state.project.duration,
+                  enabled: true,
+                  keyframes: [],
+                },
+              ],
+            },
+            ...state.project.layers,
+          ],
+        },
+        selectedLayerIds: [layerId],
+      };
+    });
+  },
+  addAudioLayer: (name, src, waveform, duration) => {
+    set((state) => {
+      const assetId = `audio-${crypto.randomUUID()}`;
+      const layerId = `audio-layer-${crypto.randomUUID()}`;
+      const nextDuration = Math.max(
+        state.project.duration,
+        Math.ceil(duration) || state.project.duration,
+      );
+
+      return {
+        project: {
+          ...state.project,
+          duration: nextDuration,
+          timeline: {
+            ...state.project.timeline,
+            duration: nextDuration,
+          },
+          assets: [
+            {
+              id: assetId,
+              name,
+              type: "audio",
+              src,
+              waveform,
+            },
+            ...state.project.assets,
+          ],
+          layers: [
+            {
+              id: layerId,
+              name,
+              type: "audio",
+              visible: true,
+              locked: false,
+              object: {
+                id: `${layerId}-object`,
+                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                opacity: 1,
+                style: { color: "#22c55e" },
+                content: { assetId },
+              },
+              clips: [
+                {
+                  id: `${layerId}-clip`,
+                  layerId,
+                  name: `${name} Audio`,
+                  start: 0,
+                  end: nextDuration,
                   enabled: true,
                   keyframes: [],
                 },

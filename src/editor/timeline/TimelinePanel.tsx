@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Layer } from "../model/project";
+import type { Asset, Layer } from "../model/project";
 import { clampTimelineValue, pixelsPerSecond } from "./timelineMath";
 
 type TimelinePanelProps = {
   layers: Layer[];
+  assets: Asset[];
   duration: number;
   currentTime: number;
   selectedLayerId: string | null;
@@ -26,6 +27,7 @@ type DragState =
 
 export function TimelinePanel({
   layers,
+  assets,
   duration,
   currentTime,
   selectedLayerId,
@@ -173,6 +175,15 @@ export function TimelinePanel({
                 ))}
 
                 {layer.clips.map((clip) => {
+                  const audioAssetId =
+                    layer.type === "audio" &&
+                    layer.object.content &&
+                    "assetId" in layer.object.content
+                      ? layer.object.content.assetId
+                      : null;
+                  const audioAsset = audioAssetId
+                    ? assets.find((asset) => asset.id === audioAssetId)
+                    : null;
                   const clipLeft = clip.start * pixelsPerSecond;
                   const clipWidth = Math.max(34, (clip.end - clip.start) * pixelsPerSecond);
 
@@ -195,7 +206,7 @@ export function TimelinePanel({
                           clipOffset: pointerOffset / pixelsPerSecond,
                         });
                       }}
-                      className={`absolute top-3 h-14 rounded-2xl border border-white/12 px-4 text-left shadow-lg transition ${layer.type === "text" ? "bg-violet-500/80" : "bg-cyan-500/80"} ${selectedClipId === clip.id ? "ring-2 ring-violet-200/80" : ""}`}
+                      className={`absolute top-3 h-14 rounded-2xl border border-white/12 px-4 text-left shadow-lg transition ${layer.type === "text" ? "bg-violet-500/80" : layer.type === "shape" ? "bg-cyan-500/80" : "bg-emerald-500/80"} ${selectedClipId === clip.id ? "ring-2 ring-violet-200/80" : ""}`}
                       style={{ left: clipLeft, width: clipWidth }}
                     >
                       <span className="block truncate text-sm font-medium text-white">
@@ -204,6 +215,18 @@ export function TimelinePanel({
                       <span className="mt-1 block text-[11px] text-white/80">
                         {clip.start.toFixed(2)}s - {clip.end.toFixed(2)}s
                       </span>
+
+                      {audioAsset?.waveform ? (
+                        <span className="absolute inset-x-4 bottom-2 flex h-4 items-center gap-[2px] overflow-hidden">
+                          {audioAsset.waveform.slice(0, 48).map((value, index) => (
+                            <span
+                              key={`${audioAsset.id}-${index}`}
+                              className="block w-1 rounded-full bg-white/70"
+                              style={{ height: `${Math.max(10, value * 100)}%` }}
+                            />
+                          ))}
+                        </span>
+                      ) : null}
 
                       {clip.keyframes.map((keyframe) => (
                         <span

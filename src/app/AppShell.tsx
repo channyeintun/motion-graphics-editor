@@ -20,13 +20,20 @@ import { TimelinePanel } from "../editor/timeline/TimelinePanel";
 
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
+  const playbackTimeRef = useRef(0);
+
   const project = useEditorStore((state) => state.project);
   const currentTime = useEditorStore((state) => state.currentTime);
+  const isPlaying = useEditorStore((state) => state.isPlaying);
+  const loopPlayback = useEditorStore((state) => state.loopPlayback);
   const selectedLayerIds = useEditorStore((state) => state.selectedLayerIds);
   const selectedClipId = useEditorStore((state) => state.selectedClipId);
   const selectedKeyframeId = useEditorStore((state) => state.selectedKeyframeId);
   const addTextLayer = useEditorStore((state) => state.addTextLayer);
   const addShapeLayer = useEditorStore((state) => state.addShapeLayer);
+  const addAudioLayer = useEditorStore((state) => state.addAudioLayer);
   const selectLayer = useEditorStore((state) => state.selectLayer);
   const selectClip = useEditorStore((state) => state.selectClip);
   const selectKeyframe = useEditorStore((state) => state.selectKeyframe);
@@ -45,6 +52,8 @@ export function AppShell() {
   const addKeyframe = useEditorStore((state) => state.addKeyframe);
   const moveKeyframe = useEditorStore((state) => state.moveKeyframe);
   const deleteKeyframe = useEditorStore((state) => state.deleteKeyframe);
+  const setPlaying = useEditorStore((state) => state.setPlaying);
+  const setLoopPlayback = useEditorStore((state) => state.setLoopPlayback);
   const seek = useEditorStore((state) => state.seek);
 
   const sampledLayers = useMemo(
@@ -61,6 +70,8 @@ export function AppShell() {
   const selectedLayer = project.layers.find((layer) => layer.id === selectedId) ?? null;
   const selectedObject = previewObjects.find((object) => object.id === selectedId) ?? null;
 
+  playbackTimeRef.current = currentTime;
+
   const saveProject = useEffectEvent((nextProject: Project) => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextProject));
   });
@@ -75,6 +86,93 @@ export function AppShell() {
     };
   }, [project]);
 
+  useEffect(() => {
+    if (!isPlaying) {
+      return;
+    }
+
+    let frameId = 0;
+    let previous = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = (now - previous) / 1000;
+      previous = now;
+      const nextTime = playbackTimeRef.current + elapsed;
+
+      if (nextTime >= project.duration) {
+        if (loopPlayback) {
+          seek(0);
+        } else {
+          seek(project.duration);
+          setPlaying(false);
+          return;
+        }
+      } else {
+        seek(nextTime);
+      }
+
+      frameId = window.requestAnimationFrame(tick);
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [isPlaying, loopPlayback, project.duration, seek, setPlaying]);
+
+  useEffect(() => {
+    const nextMap = new Map<string, HTMLAudioElement>();
+
+    for (const asset of project.assets) {
+      if (asset.type !== "audio") {
+        continue;
+      }
+
+      const existing = audioElementsRef.current.get(asset.id);
+      const audio = existing ?? new Audio(asset.src);
+      audio.src = asset.src;
+      nextMap.set(asset.id, audio);
+    }
+
+    audioElementsRef.current = nextMap;
+  }, [project.assets]);
+
+  useEffect(() => {
+    for (const layer of project.layers) {
+      if (layer.type !== "audio" || !layer.object.content || !("assetId" in layer.object.content)) {
+        continue;
+      }
+
+      const audio = audioElementsRef.current.get(layer.object.content.assetId);
+      const clip = layer.clips[0];
+
+      if (!audio || !clip) {
+        continue;
+      }
+
+      const insideClip = currentTime >= clip.start && currentTime <= clip.end;
+
+      if (!insideClip) {
+        audio.pause();
+        audio.currentTime = 0;
+        continue;
+      }
+
+      const clipTime = Math.max(0, currentTime - clip.start);
+
+      if (Math.abs(audio.currentTime - clipTime) > 0.18) {
+        audio.currentTime = clipTime;
+      }
+
+      if (isPlaying) {
+        void audio.play();
+      } else {
+        audio.pause();
+      }
+    }
+  }, [currentTime, isPlaying, project.layers]);
+
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
@@ -84,6 +182,23 @@ export function AppShell() {
 
     const contents = await file.text();
     replaceProject(JSON.parse(contents) as Project);
+    event.target.value = "";
+  };
+
+  const handleAudioImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const src = URL.createObjectURL(file);
+    const buffer = await file.arrayBuffer();
+    const audioContext = new AudioContext();
+    const decoded = await audioContext.decodeAudioData(buffer.slice(0));
+    const waveform = createWaveform(decoded.getChannelData(0));
+    addAudioLayer(file.name.replace(/\.[^.]+$/, ""), src, waveform, decoded.duration);
+    await audioContext.close();
     event.target.value = "";
   };
 
@@ -105,6 +220,13 @@ export function AppShell() {
         accept="application/json"
         className="hidden"
         onChange={handleImport}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        className="hidden"
+        onChange={handleAudioImport}
       />
 
       <div className="flex min-h-screen flex-col gap-3 p-3 md:p-4">
@@ -139,7 +261,8 @@ export function AppShell() {
               </button>
               <button
                 type="button"
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-500 transition"
+                onClick={() => audioInputRef.current?.click()}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
               >
                 Audio
               </button>
@@ -199,6 +322,7 @@ export function AppShell() {
                   <DetailRow label="Duration" value={`${project.duration}s`} />
                   <DetailRow label="Layers" value={`${project.layers.length}`} />
                   <DetailRow label="Playhead" value={`${currentTime.toFixed(2)}s`} />
+                  <DetailRow label="Playback" value={isPlaying ? "Playing" : "Paused"} />
                 </div>
               </div>
 
@@ -212,11 +336,9 @@ export function AppShell() {
                       </span>
                       <input
                         value={selectedLayer?.name ?? ""}
-                        onChange={(event) => {
-                          if (selectedId) {
-                            renameLayer(selectedId, event.target.value);
-                          }
-                        }}
+                        onChange={(event) =>
+                          selectedId && renameLayer(selectedId, event.target.value)
+                        }
                         className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                       />
                     </label>
@@ -236,11 +358,7 @@ export function AppShell() {
                           <button
                             key={property}
                             type="button"
-                            onClick={() => {
-                              if (selectedId) {
-                                addKeyframe(selectedId, property);
-                              }
-                            }}
+                            onClick={() => selectedId && addKeyframe(selectedId, property)}
                             className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-black/40"
                           >
                             Keyframe {property}
@@ -263,15 +381,15 @@ export function AppShell() {
                         <input
                           type="number"
                           value={selectedLayer?.object.transform.x ?? 0}
-                          onChange={(event) => {
-                            if (selectedId && selectedLayer) {
-                              updateLayerPosition(
-                                selectedId,
-                                Number(event.target.value),
-                                selectedLayer.object.transform.y,
-                              );
-                            }
-                          }}
+                          onChange={(event) =>
+                            selectedId &&
+                            selectedLayer &&
+                            updateLayerPosition(
+                              selectedId,
+                              Number(event.target.value),
+                              selectedLayer.object.transform.y,
+                            )
+                          }
                           className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                         />
                       </label>
@@ -280,15 +398,15 @@ export function AppShell() {
                         <input
                           type="number"
                           value={selectedLayer?.object.transform.y ?? 0}
-                          onChange={(event) => {
-                            if (selectedId && selectedLayer) {
-                              updateLayerPosition(
-                                selectedId,
-                                selectedLayer.object.transform.x,
-                                Number(event.target.value),
-                              );
-                            }
-                          }}
+                          onChange={(event) =>
+                            selectedId &&
+                            selectedLayer &&
+                            updateLayerPosition(
+                              selectedId,
+                              selectedLayer.object.transform.x,
+                              Number(event.target.value),
+                            )
+                          }
                           className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                         />
                       </label>
@@ -300,11 +418,9 @@ export function AppShell() {
                           max="1"
                           step="0.05"
                           value={selectedLayer?.object.opacity ?? 1}
-                          onChange={(event) => {
-                            if (selectedId) {
-                              updateLayerOpacity(selectedId, Number(event.target.value));
-                            }
-                          }}
+                          onChange={(event) =>
+                            selectedId && updateLayerOpacity(selectedId, Number(event.target.value))
+                          }
                           className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                         />
                       </label>
@@ -313,11 +429,9 @@ export function AppShell() {
                         <input
                           type="color"
                           value={selectedLayer?.object.style.color ?? "#ffffff"}
-                          onChange={(event) => {
-                            if (selectedId) {
-                              updateLayerColor(selectedId, event.target.value);
-                            }
-                          }}
+                          onChange={(event) =>
+                            selectedId && updateLayerColor(selectedId, event.target.value)
+                          }
                           className="h-10 w-full rounded-xl border border-white/10 bg-black/30 px-2 py-1"
                         />
                       </label>
@@ -331,11 +445,9 @@ export function AppShell() {
                         </span>
                         <textarea
                           value={selectedLayer.object.content.value}
-                          onChange={(event) => {
-                            if (selectedId) {
-                              updateTextLayer(selectedId, event.target.value);
-                            }
-                          }}
+                          onChange={(event) =>
+                            selectedId && updateTextLayer(selectedId, event.target.value)
+                          }
                           rows={3}
                           className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                         />
@@ -403,15 +515,17 @@ export function AppShell() {
             <div className="flex items-center gap-2 text-xs text-slate-300">
               <button
                 type="button"
+                onClick={() => setPlaying(!isPlaying)}
                 className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
               >
-                Play
+                {isPlaying ? "Pause" : "Play"}
               </button>
               <button
                 type="button"
+                onClick={() => setLoopPlayback(!loopPlayback)}
                 className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
               >
-                Loop
+                {loopPlayback ? "Loop On" : "Loop Off"}
               </button>
               <button
                 type="button"
@@ -425,6 +539,7 @@ export function AppShell() {
 
           <TimelinePanel
             layers={project.layers}
+            assets={project.assets}
             duration={project.duration}
             currentTime={currentTime}
             selectedLayerId={selectedId}
@@ -442,6 +557,26 @@ export function AppShell() {
       </div>
     </main>
   );
+}
+
+function createWaveform(channelData: Float32Array) {
+  const bucketCount = 64;
+  const bucketSize = Math.max(1, Math.floor(channelData.length / bucketCount));
+  const peaks: number[] = [];
+
+  for (let bucketIndex = 0; bucketIndex < bucketCount; bucketIndex += 1) {
+    const start = bucketIndex * bucketSize;
+    const end = Math.min(channelData.length, start + bucketSize);
+    let peak = 0;
+
+    for (let index = start; index < end; index += 1) {
+      peak = Math.max(peak, Math.abs(channelData[index] ?? 0));
+    }
+
+    peaks.push(peak);
+  }
+
+  return peaks;
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {

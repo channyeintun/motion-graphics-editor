@@ -8,7 +8,7 @@
 - [x] Phase 3: Timeline MVP with ruler, playhead, seek, scrub, clip move, and trim.
 - [x] Phase 4: Keyframes, interpolation, easing, and animated preview sampling.
 - [x] Phase 5: Text and shape creation plus inspector and layer controls.
-- [ ] Phase 6: Playback clock, audio import, waveform, and sync.
+- [x] Phase 6: Playback clock, audio import, waveform, and sync.
 - [ ] Phase 7: Undo/redo, shortcuts, snapping, zoom, multi-select, and responsive polish.
 - [ ] Phase 8: PNG export, JSON export, WebM prototype, and MP4 path note.
 
@@ -21,3 +21,4 @@
 - Timeline seek, playhead scrubbing, clip move, and clip trim are wired into editor state.
 - Keyframes now drive sampled preview animation with easing and draggable timeline markers.
 - Toolbar layer creation, inspector editing, visibility/lock, and reorder controls are active.
+- Playback, loop, audio import, waveform rendering, and audio sync are now active.
