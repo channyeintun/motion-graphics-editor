@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import {
   ArrowDown,
@@ -24,6 +24,10 @@ export function AppShell() {
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const playbackTimeRef = useRef(0);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const historyRef = useRef<Project[]>([]);
+  const futureRef = useRef<Project[]>([]);
+  const skipHistoryRef = useRef(false);
+  const lastProjectRef = useRef<string>("");
   const [timelineZoom, setTimelineZoom] = useState(140);
 
   const project = useEditorStore((state) => state.project);
@@ -86,6 +90,29 @@ export function AppShell() {
     return () => {
       window.clearTimeout(handle);
     };
+  }, [project]);
+
+  useEffect(() => {
+    const serializedProject = JSON.stringify(project);
+
+    if (!lastProjectRef.current) {
+      lastProjectRef.current = serializedProject;
+      return;
+    }
+
+    if (serializedProject === lastProjectRef.current) {
+      return;
+    }
+
+    if (skipHistoryRef.current) {
+      skipHistoryRef.current = false;
+      lastProjectRef.current = serializedProject;
+      return;
+    }
+
+    historyRef.current.push(JSON.parse(lastProjectRef.current) as Project);
+    futureRef.current = [];
+    lastProjectRef.current = serializedProject;
   }, [project]);
 
   useEffect(() => {
@@ -265,11 +292,50 @@ export function AppShell() {
     );
   };
 
+  const undoProject = useCallback(() => {
+    const previousProject = historyRef.current.pop();
+
+    if (!previousProject) {
+      return;
+    }
+
+    futureRef.current.push(JSON.parse(JSON.stringify(project)) as Project);
+    skipHistoryRef.current = true;
+    replaceProject(previousProject);
+  }, [project, replaceProject]);
+
+  const redoProject = useCallback(() => {
+    const nextProject = futureRef.current.pop();
+
+    if (!nextProject) {
+      return;
+    }
+
+    historyRef.current.push(JSON.parse(JSON.stringify(project)) as Project);
+    skipHistoryRef.current = true;
+    replaceProject(nextProject);
+  }, [project, replaceProject]);
+
+  const canUndo = historyRef.current.length > 0;
+  const canRedo = futureRef.current.length > 0;
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code === "Space") {
         event.preventDefault();
         setPlaying(!isPlaying);
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+
+        if (event.shiftKey) {
+          redoProject();
+        } else {
+          undoProject();
+        }
+
         return;
       }
 
@@ -284,7 +350,7 @@ export function AppShell() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [deleteKeyframe, isPlaying, selectedKeyframeId, setPlaying]);
+  }, [deleteKeyframe, isPlaying, redoProject, selectedKeyframeId, setPlaying, undoProject]);
 
   return (
     <main className="min-h-screen bg-[#0a0b10] text-slate-100">
@@ -400,6 +466,10 @@ export function AppShell() {
                   <DetailRow label="Layers" value={`${project.layers.length}`} />
                   <DetailRow label="Playhead" value={`${currentTime.toFixed(2)}s`} />
                   <DetailRow label="Playback" value={isPlaying ? "Playing" : "Paused"} />
+                  <DetailRow
+                    label="Selected"
+                    value={`${selectedLayerIds.length} layer${selectedLayerIds.length === 1 ? "" : "s"}`}
+                  />
                 </div>
               </div>
 
@@ -603,6 +673,22 @@ export function AppShell() {
                 className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
               >
                 {loopPlayback ? "Loop On" : "Loop Off"}
+              </button>
+              <button
+                type="button"
+                onClick={undoProject}
+                disabled={!canUndo}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={redoProject}
+                disabled={!canRedo}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Redo
               </button>
               <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
                 Zoom
