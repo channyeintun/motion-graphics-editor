@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createDefaultProject } from "../model/defaultProject";
 import type { Project } from "../model/project";
+import { clampClipEdge, clampClipMove } from "../timeline/timelineMath";
 
 export const STORAGE_KEY = "motion-graphics-editor.project";
 
@@ -12,8 +13,11 @@ type EditorState = {
   isPlaying: boolean;
   loopPlayback: boolean;
   selectLayer: (layerId: string | null) => void;
+  selectClip: (clipId: string | null) => void;
   replaceProject: (project: Project) => void;
   moveLayerObject: (layerId: string, nextX: number, nextY: number) => void;
+  moveClip: (clipId: string, nextStart: number) => void;
+  trimClip: (clipId: string, edge: "start" | "end", nextTime: number) => void;
   setPlaying: (isPlaying: boolean) => void;
   setLoopPlayback: (loopPlayback: boolean) => void;
   seek: (time: number) => void;
@@ -47,6 +51,9 @@ export const useEditorStore = create<EditorState>((set) => ({
   selectLayer: (layerId) => {
     set({ selectedLayerIds: layerId ? [layerId] : [] });
   },
+  selectClip: (clipId) => {
+    set({ selectedClipId: clipId });
+  },
   replaceProject: (project) => {
     set({
       project,
@@ -75,6 +82,51 @@ export const useEditorStore = create<EditorState>((set) => ({
               }
             : layer,
         ),
+      },
+    }));
+  },
+  moveClip: (clipId, nextStart) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => ({
+          ...layer,
+          clips: layer.clips.map((clip) => {
+            if (clip.id !== clipId) {
+              return clip;
+            }
+
+            const clipDuration = clip.end - clip.start;
+            const start = clampClipMove(nextStart, state.project.duration, clipDuration);
+            return {
+              ...clip,
+              start,
+              end: start + clipDuration,
+            };
+          }),
+        })),
+      },
+    }));
+  },
+  trimClip: (clipId, edge, nextTime) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => ({
+          ...layer,
+          clips: layer.clips.map((clip) => {
+            if (clip.id !== clipId) {
+              return clip;
+            }
+
+            const nextEdge = clampClipEdge(clip.start, clip.end, edge, nextTime);
+            return {
+              ...clip,
+              start: nextEdge.start,
+              end: Math.min(state.project.duration, nextEdge.end),
+            };
+          }),
+        })),
       },
     }));
   },

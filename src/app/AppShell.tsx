@@ -5,16 +5,23 @@ import { toPreviewObject } from "../editor/model/preview";
 import type { Project } from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
+import { TimelinePanel } from "../editor/timeline/TimelinePanel";
 
 const toolbarButtons = ["Select", "Text", "Shape", "Image", "Audio"];
 
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const project = useEditorStore((state) => state.project);
+  const currentTime = useEditorStore((state) => state.currentTime);
   const selectedLayerIds = useEditorStore((state) => state.selectedLayerIds);
+  const selectedClipId = useEditorStore((state) => state.selectedClipId);
   const selectLayer = useEditorStore((state) => state.selectLayer);
+  const selectClip = useEditorStore((state) => state.selectClip);
   const moveLayerObject = useEditorStore((state) => state.moveLayerObject);
   const replaceProject = useEditorStore((state) => state.replaceProject);
+  const moveClip = useEditorStore((state) => state.moveClip);
+  const trimClip = useEditorStore((state) => state.trimClip);
+  const seek = useEditorStore((state) => state.seek);
 
   const previewObjects = useMemo(
     () => project.layers.map(toPreviewObject).filter((object) => object !== null),
@@ -87,7 +94,7 @@ export function AppShell() {
 
             <div className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-xs text-slate-300 backdrop-blur">
               <span>
-                {project.width} x {project.height} • {project.fps} FPS
+                {project.width} x {project.height} • {project.fps} FPS • {currentTime.toFixed(2)}s
               </span>
               <button
                 type="button"
@@ -138,6 +145,7 @@ export function AppShell() {
                   <DetailRow label="Storage" value="Local" />
                   <DetailRow label="Duration" value={`${project.duration}s`} />
                   <DetailRow label="Layers" value={`${project.layers.length}`} />
+                  <DetailRow label="Playhead" value={`${currentTime.toFixed(2)}s`} />
                 </div>
               </div>
 
@@ -154,6 +162,7 @@ export function AppShell() {
                       label="Opacity"
                       value={`${Math.round(selectedObject.opacity * 100)}%`}
                     />
+                    <DetailRow label="Clip" value={selectedClipId ?? "None"} />
                   </div>
                 ) : (
                   <p className="mt-3 text-sm text-slate-400">
@@ -194,41 +203,18 @@ export function AppShell() {
             </div>
           </div>
 
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-[#090b10]">
-            <div className="grid grid-cols-[220px_minmax(720px,1fr)] border-b border-white/8 text-xs text-slate-500">
-              <div className="border-r border-white/8 px-4 py-3 uppercase tracking-[0.32em]">
-                Layers
-              </div>
-              <div className="px-4 py-3 uppercase tracking-[0.32em]">0s 1s 2s 3s 4s 5s</div>
-            </div>
-
-            {project.layers.map((layer) => (
-              <div
-                key={layer.id}
-                className="grid grid-cols-[220px_minmax(720px,1fr)] border-b border-white/6 last:border-b-0"
-              >
-                <div className="flex items-center justify-between border-r border-white/6 px-4 py-4">
-                  <div>
-                    <p className="text-sm font-medium text-white">{layer.name}</p>
-                    <p className="text-xs text-slate-500">{layer.type}</p>
-                  </div>
-                  <span className="h-2.5 w-2.5 rounded-full bg-white/35" />
-                </div>
-                <div className="relative px-4 py-4">
-                  <div className="absolute inset-y-0 left-[22%] w-px bg-white/12" />
-                  <button
-                    type="button"
-                    onClick={() => selectLayer(layer.id)}
-                    className={`h-12 w-full rounded-2xl border border-white/10 text-left transition hover:brightness-110 ${layer.type === "text" ? "bg-violet-500/80" : "bg-cyan-400/80"} ${layer.id === selectedId ? "ring-2 ring-violet-300/70" : ""}`}
-                  >
-                    <span className="block px-4 py-3 text-sm font-medium text-white/95">
-                      {layer.clips[0]?.name ?? "Clip"}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+          <TimelinePanel
+            layers={project.layers}
+            duration={project.duration}
+            currentTime={currentTime}
+            selectedLayerId={selectedId}
+            selectedClipId={selectedClipId}
+            onSelectLayer={selectLayer}
+            onSelectClip={selectClip}
+            onSeek={seek}
+            onMoveClip={moveClip}
+            onTrimClip={trimClip}
+          />
         </section>
       </div>
     </main>
