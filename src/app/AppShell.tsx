@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import type { ChangeEvent } from "react";
 import { Download, FileUp, Save } from "lucide-react";
+import { sampleLayer } from "../editor/engine/animationSampler";
 import { toPreviewObject } from "../editor/model/preview";
 import type { Project } from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
@@ -15,17 +16,27 @@ export function AppShell() {
   const currentTime = useEditorStore((state) => state.currentTime);
   const selectedLayerIds = useEditorStore((state) => state.selectedLayerIds);
   const selectedClipId = useEditorStore((state) => state.selectedClipId);
+  const selectedKeyframeId = useEditorStore((state) => state.selectedKeyframeId);
   const selectLayer = useEditorStore((state) => state.selectLayer);
   const selectClip = useEditorStore((state) => state.selectClip);
+  const selectKeyframe = useEditorStore((state) => state.selectKeyframe);
   const moveLayerObject = useEditorStore((state) => state.moveLayerObject);
   const replaceProject = useEditorStore((state) => state.replaceProject);
   const moveClip = useEditorStore((state) => state.moveClip);
   const trimClip = useEditorStore((state) => state.trimClip);
+  const addKeyframe = useEditorStore((state) => state.addKeyframe);
+  const moveKeyframe = useEditorStore((state) => state.moveKeyframe);
+  const deleteKeyframe = useEditorStore((state) => state.deleteKeyframe);
   const seek = useEditorStore((state) => state.seek);
 
+  const sampledLayers = useMemo(
+    () => project.layers.map((layer) => sampleLayer(layer, currentTime)),
+    [currentTime, project.layers],
+  );
+
   const previewObjects = useMemo(
-    () => project.layers.map(toPreviewObject).filter((object) => object !== null),
-    [project.layers],
+    () => sampledLayers.map(toPreviewObject).filter((object) => object !== null),
+    [sampledLayers],
   );
 
   const selectedId = selectedLayerIds[0] ?? null;
@@ -163,6 +174,33 @@ export function AppShell() {
                       value={`${Math.round(selectedObject.opacity * 100)}%`}
                     />
                     <DetailRow label="Clip" value={selectedClipId ?? "None"} />
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      {(["x", "y", "scaleX", "scaleY", "rotation", "opacity"] as const).map(
+                        (property) => (
+                          <button
+                            key={property}
+                            type="button"
+                            onClick={() => {
+                              if (selectedId) {
+                                addKeyframe(selectedId, property);
+                              }
+                            }}
+                            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-black/40"
+                          >
+                            Keyframe {property}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                    {selectedKeyframeId ? (
+                      <button
+                        type="button"
+                        onClick={() => deleteKeyframe(selectedKeyframeId)}
+                        className="w-full rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-200 transition hover:bg-rose-500/20"
+                      >
+                        Delete Selected Keyframe
+                      </button>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="mt-3 text-sm text-slate-400">
@@ -209,11 +247,14 @@ export function AppShell() {
             currentTime={currentTime}
             selectedLayerId={selectedId}
             selectedClipId={selectedClipId}
+            selectedKeyframeId={selectedKeyframeId}
             onSelectLayer={selectLayer}
             onSelectClip={selectClip}
+            onSelectKeyframe={selectKeyframe}
             onSeek={seek}
             onMoveClip={moveClip}
             onTrimClip={trimClip}
+            onMoveKeyframe={moveKeyframe}
           />
         </section>
       </div>

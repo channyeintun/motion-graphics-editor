@@ -9,15 +9,23 @@ type EditorState = {
   project: Project;
   selectedLayerIds: string[];
   selectedClipId: string | null;
+  selectedKeyframeId: string | null;
   currentTime: number;
   isPlaying: boolean;
   loopPlayback: boolean;
   selectLayer: (layerId: string | null) => void;
   selectClip: (clipId: string | null) => void;
+  selectKeyframe: (keyframeId: string | null) => void;
   replaceProject: (project: Project) => void;
   moveLayerObject: (layerId: string, nextX: number, nextY: number) => void;
   moveClip: (clipId: string, nextStart: number) => void;
   trimClip: (clipId: string, edge: "start" | "end", nextTime: number) => void;
+  addKeyframe: (
+    layerId: string,
+    property: "x" | "y" | "rotation" | "scaleX" | "scaleY" | "opacity",
+  ) => void;
+  moveKeyframe: (keyframeId: string, nextTime: number) => void;
+  deleteKeyframe: (keyframeId: string) => void;
   setPlaying: (isPlaying: boolean) => void;
   setLoopPlayback: (loopPlayback: boolean) => void;
   seek: (time: number) => void;
@@ -45,6 +53,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   project: getInitialProject(),
   selectedLayerIds: ["headline"],
   selectedClipId: null,
+  selectedKeyframeId: null,
   currentTime: 0,
   isPlaying: false,
   loopPlayback: true,
@@ -54,11 +63,15 @@ export const useEditorStore = create<EditorState>((set) => ({
   selectClip: (clipId) => {
     set({ selectedClipId: clipId });
   },
+  selectKeyframe: (keyframeId) => {
+    set({ selectedKeyframeId: keyframeId });
+  },
   replaceProject: (project) => {
     set({
       project,
       selectedLayerIds: project.layers[0] ? [project.layers[0].id] : [],
       selectedClipId: null,
+      selectedKeyframeId: null,
       currentTime: 0,
       isPlaying: false,
     });
@@ -128,6 +141,83 @@ export const useEditorStore = create<EditorState>((set) => ({
           }),
         })),
       },
+    }));
+  },
+  addKeyframe: (layerId, property) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => {
+          if (layer.id !== layerId) {
+            return layer;
+          }
+
+          const clip = layer.clips[0];
+
+          if (!clip) {
+            return layer;
+          }
+
+          const value =
+            property === "opacity" ? layer.object.opacity : layer.object.transform[property];
+
+          return {
+            ...layer,
+            clips: [
+              {
+                ...clip,
+                keyframes: [
+                  ...clip.keyframes,
+                  {
+                    id: `${clip.id}-${property}-${crypto.randomUUID()}`,
+                    time: state.currentTime,
+                    property,
+                    value,
+                    easing: "easeInOut",
+                  },
+                ],
+              },
+              ...layer.clips.slice(1),
+            ],
+          };
+        }),
+      },
+    }));
+  },
+  moveKeyframe: (keyframeId, nextTime) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => ({
+          ...layer,
+          clips: layer.clips.map((clip) => ({
+            ...clip,
+            keyframes: clip.keyframes.map((keyframe) =>
+              keyframe.id === keyframeId
+                ? {
+                    ...keyframe,
+                    time: Math.min(clip.end, Math.max(clip.start, nextTime)),
+                  }
+                : keyframe,
+            ),
+          })),
+        })),
+      },
+    }));
+  },
+  deleteKeyframe: (keyframeId) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => ({
+          ...layer,
+          clips: layer.clips.map((clip) => ({
+            ...clip,
+            keyframes: clip.keyframes.filter((keyframe) => keyframe.id !== keyframeId),
+          })),
+        })),
+      },
+      selectedKeyframeId: state.selectedKeyframeId === keyframeId ? null : state.selectedKeyframeId,
     }));
   },
   setPlaying: (isPlaying) => {

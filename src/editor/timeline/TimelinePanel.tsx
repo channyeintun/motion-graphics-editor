@@ -8,17 +8,21 @@ type TimelinePanelProps = {
   currentTime: number;
   selectedLayerId: string | null;
   selectedClipId: string | null;
+  selectedKeyframeId: string | null;
   onSelectLayer: (layerId: string) => void;
   onSelectClip: (clipId: string | null) => void;
+  onSelectKeyframe: (keyframeId: string | null) => void;
   onSeek: (time: number) => void;
   onMoveClip: (clipId: string, nextStart: number) => void;
   onTrimClip: (clipId: string, edge: "start" | "end", nextTime: number) => void;
+  onMoveKeyframe: (keyframeId: string, nextTime: number) => void;
 };
 
 type DragState =
   | { type: "playhead" }
   | { type: "clip"; clipId: string; clipOffset: number }
-  | { type: "trim"; clipId: string; edge: "start" | "end" };
+  | { type: "trim"; clipId: string; edge: "start" | "end" }
+  | { type: "keyframe"; keyframeId: string };
 
 export function TimelinePanel({
   layers,
@@ -26,11 +30,14 @@ export function TimelinePanel({
   currentTime,
   selectedLayerId,
   selectedClipId,
+  selectedKeyframeId,
   onSelectLayer,
   onSelectClip,
+  onSelectKeyframe,
   onSeek,
   onMoveClip,
   onTrimClip,
+  onMoveKeyframe,
 }: TimelinePanelProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -70,6 +77,11 @@ export function TimelinePanel({
         return;
       }
 
+      if (dragState.type === "keyframe") {
+        onMoveKeyframe(dragState.keyframeId, nextTime);
+        return;
+      }
+
       onTrimClip(dragState.clipId, dragState.edge, nextTime);
     };
 
@@ -84,7 +96,7 @@ export function TimelinePanel({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", stopDragging);
     };
-  }, [dragState, duration, onMoveClip, onSeek, onTrimClip]);
+  }, [dragState, duration, onMoveClip, onMoveKeyframe, onSeek, onTrimClip]);
 
   return (
     <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-[#090b10]">
@@ -192,6 +204,23 @@ export function TimelinePanel({
                       <span className="mt-1 block text-[11px] text-white/80">
                         {clip.start.toFixed(2)}s - {clip.end.toFixed(2)}s
                       </span>
+
+                      {clip.keyframes.map((keyframe) => (
+                        <span
+                          key={keyframe.id}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            onSelectLayer(layer.id);
+                            onSelectClip(clip.id);
+                            onSelectKeyframe(keyframe.id);
+                            setDragState({ type: "keyframe", keyframeId: keyframe.id });
+                          }}
+                          className={`absolute top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border ${selectedKeyframeId === keyframe.id ? "border-white bg-violet-200" : "border-white/80 bg-white/75"}`}
+                          style={{
+                            left: `${((keyframe.time - clip.start) / Math.max(0.001, clip.end - clip.start)) * 100}%`,
+                          }}
+                        />
+                      ))}
 
                       <span
                         onPointerDown={(event) => {

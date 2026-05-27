@@ -6,7 +6,7 @@
 - [x] Phase 1: Three.js preview stage with selectable sample objects.
 - [x] Phase 2: Project model, Zustand editor store, autosave, and JSON import/export.
 - [x] Phase 3: Timeline MVP with ruler, playhead, seek, scrub, clip move, and trim.
-- [ ] Phase 4: Keyframes, interpolation, easing, and animated preview sampling.
+- [x] Phase 4: Keyframes, interpolation, easing, and animated preview sampling.
 - [ ] Phase 5: Text and shape creation plus inspector and layer controls.
 - [ ] Phase 6: Playback clock, audio import, waveform, and sync.
 - [ ] Phase 7: Undo/redo, shortcuts, snapping, zoom, multi-select, and responsive polish.
@@ -19,3 +19,4 @@
 - Type checking stays on the VitePlus TypeScript Go path via `vp check` and `tsgolint`.
 - Editor project state now autosaves to local storage and supports JSON import/export.
 - Timeline seek, playhead scrubbing, clip move, and clip trim are wired into editor state.
+- Keyframes now drive sampled preview animation with easing and draggable timeline markers.
