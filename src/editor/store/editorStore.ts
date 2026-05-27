@@ -17,6 +17,16 @@ type EditorState = {
   selectClip: (clipId: string | null) => void;
   selectKeyframe: (keyframeId: string | null) => void;
   replaceProject: (project: Project) => void;
+  addTextLayer: () => void;
+  addShapeLayer: () => void;
+  renameLayer: (layerId: string, name: string) => void;
+  toggleLayerVisibility: (layerId: string) => void;
+  toggleLayerLock: (layerId: string) => void;
+  reorderLayer: (layerId: string, direction: "up" | "down") => void;
+  updateTextLayer: (layerId: string, value: string) => void;
+  updateLayerColor: (layerId: string, color: string) => void;
+  updateLayerOpacity: (layerId: string, opacity: number) => void;
+  updateLayerPosition: (layerId: string, x: number, y: number) => void;
   moveLayerObject: (layerId: string, nextX: number, nextY: number) => void;
   moveClip: (clipId: string, nextStart: number) => void;
   trimClip: (clipId: string, edge: "start" | "end", nextTime: number) => void;
@@ -75,6 +85,229 @@ export const useEditorStore = create<EditorState>((set) => ({
       currentTime: 0,
       isPlaying: false,
     });
+  },
+  addTextLayer: () => {
+    set((state) => {
+      const layerId = `text-${crypto.randomUUID()}`;
+      return {
+        project: {
+          ...state.project,
+          layers: [
+            {
+              id: layerId,
+              name: `Text ${state.project.layers.length + 1}`,
+              type: "text",
+              visible: true,
+              locked: false,
+              object: {
+                id: `${layerId}-object`,
+                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                opacity: 1,
+                style: { color: "#18181b" },
+                content: { value: "New Title", fontSize: 0.85 },
+              },
+              clips: [
+                {
+                  id: `${layerId}-clip`,
+                  layerId,
+                  name: "Text Clip",
+                  start: 0,
+                  end: state.project.duration,
+                  enabled: true,
+                  keyframes: [],
+                },
+              ],
+            },
+            ...state.project.layers,
+          ],
+        },
+        selectedLayerIds: [layerId],
+      };
+    });
+  },
+  addShapeLayer: () => {
+    set((state) => {
+      const layerId = `shape-${crypto.randomUUID()}`;
+      return {
+        project: {
+          ...state.project,
+          layers: [
+            {
+              id: layerId,
+              name: `Shape ${state.project.layers.length + 1}`,
+              type: "shape",
+              visible: true,
+              locked: false,
+              object: {
+                id: `${layerId}-object`,
+                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                opacity: 1,
+                style: { color: "#f97316" },
+                content: { shape: "rectangle", width: 2.2, height: 0.8 },
+              },
+              clips: [
+                {
+                  id: `${layerId}-clip`,
+                  layerId,
+                  name: "Shape Clip",
+                  start: 0,
+                  end: state.project.duration,
+                  enabled: true,
+                  keyframes: [],
+                },
+              ],
+            },
+            ...state.project.layers,
+          ],
+        },
+        selectedLayerIds: [layerId],
+      };
+    });
+  },
+  renameLayer: (layerId, name) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) =>
+          layer.id === layerId ? { ...layer, name } : layer,
+        ),
+      },
+    }));
+  },
+  toggleLayerVisibility: (layerId) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) =>
+          layer.id === layerId ? { ...layer, visible: !layer.visible } : layer,
+        ),
+      },
+    }));
+  },
+  toggleLayerLock: (layerId) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) =>
+          layer.id === layerId ? { ...layer, locked: !layer.locked } : layer,
+        ),
+      },
+    }));
+  },
+  reorderLayer: (layerId, direction) => {
+    set((state) => {
+      const index = state.project.layers.findIndex((layer) => layer.id === layerId);
+
+      if (index < 0) {
+        return state;
+      }
+
+      const nextIndex =
+        direction === "up"
+          ? Math.max(0, index - 1)
+          : Math.min(state.project.layers.length - 1, index + 1);
+
+      if (index === nextIndex) {
+        return state;
+      }
+
+      const layers = [...state.project.layers];
+      const [layer] = layers.splice(index, 1);
+      layers.splice(nextIndex, 0, layer);
+
+      return {
+        project: {
+          ...state.project,
+          layers,
+        },
+      };
+    });
+  },
+  updateTextLayer: (layerId, value) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => {
+          if (
+            layer.id !== layerId ||
+            layer.type !== "text" ||
+            !layer.object.content ||
+            !("value" in layer.object.content)
+          ) {
+            return layer;
+          }
+
+          return {
+            ...layer,
+            object: {
+              ...layer.object,
+              content: {
+                ...layer.object.content,
+                value,
+              },
+            },
+          };
+        }),
+      },
+    }));
+  },
+  updateLayerColor: (layerId, color) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) =>
+          layer.id === layerId
+            ? {
+                ...layer,
+                object: {
+                  ...layer.object,
+                  style: { color },
+                },
+              }
+            : layer,
+        ),
+      },
+    }));
+  },
+  updateLayerOpacity: (layerId, opacity) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) =>
+          layer.id === layerId
+            ? {
+                ...layer,
+                object: {
+                  ...layer.object,
+                  opacity,
+                },
+              }
+            : layer,
+        ),
+      },
+    }));
+  },
+  updateLayerPosition: (layerId, x, y) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) =>
+          layer.id === layerId
+            ? {
+                ...layer,
+                object: {
+                  ...layer.object,
+                  transform: {
+                    ...layer.object.transform,
+                    x,
+                    y,
+                  },
+                },
+              }
+            : layer,
+        ),
+      },
+    }));
   },
   moveLayerObject: (layerId, nextX, nextY) => {
     set((state) => ({

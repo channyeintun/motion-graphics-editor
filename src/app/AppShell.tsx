@@ -1,14 +1,22 @@
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import type { ChangeEvent } from "react";
-import { Download, FileUp, Save } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Download,
+  Eye,
+  EyeOff,
+  FileUp,
+  Lock,
+  LockOpen,
+  Save,
+} from "lucide-react";
 import { sampleLayer } from "../editor/engine/animationSampler";
 import { toPreviewObject } from "../editor/model/preview";
 import type { Project } from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 import { TimelinePanel } from "../editor/timeline/TimelinePanel";
-
-const toolbarButtons = ["Select", "Text", "Shape", "Image", "Audio"];
 
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -17,9 +25,19 @@ export function AppShell() {
   const selectedLayerIds = useEditorStore((state) => state.selectedLayerIds);
   const selectedClipId = useEditorStore((state) => state.selectedClipId);
   const selectedKeyframeId = useEditorStore((state) => state.selectedKeyframeId);
+  const addTextLayer = useEditorStore((state) => state.addTextLayer);
+  const addShapeLayer = useEditorStore((state) => state.addShapeLayer);
   const selectLayer = useEditorStore((state) => state.selectLayer);
   const selectClip = useEditorStore((state) => state.selectClip);
   const selectKeyframe = useEditorStore((state) => state.selectKeyframe);
+  const renameLayer = useEditorStore((state) => state.renameLayer);
+  const toggleLayerVisibility = useEditorStore((state) => state.toggleLayerVisibility);
+  const toggleLayerLock = useEditorStore((state) => state.toggleLayerLock);
+  const reorderLayer = useEditorStore((state) => state.reorderLayer);
+  const updateTextLayer = useEditorStore((state) => state.updateTextLayer);
+  const updateLayerColor = useEditorStore((state) => state.updateLayerColor);
+  const updateLayerOpacity = useEditorStore((state) => state.updateLayerOpacity);
+  const updateLayerPosition = useEditorStore((state) => state.updateLayerPosition);
   const moveLayerObject = useEditorStore((state) => state.moveLayerObject);
   const replaceProject = useEditorStore((state) => state.replaceProject);
   const moveClip = useEditorStore((state) => state.moveClip);
@@ -40,6 +58,7 @@ export function AppShell() {
   );
 
   const selectedId = selectedLayerIds[0] ?? null;
+  const selectedLayer = project.layers.find((layer) => layer.id === selectedId) ?? null;
   const selectedObject = previewObjects.find((object) => object.id === selectedId) ?? null;
 
   const saveProject = useEffectEvent((nextProject: Project) => {
@@ -92,15 +111,38 @@ export function AppShell() {
         <section className="grid min-h-[64vh] flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#0f1118] shadow-2xl shadow-black/30">
             <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/45 p-2 backdrop-blur">
-              {toolbarButtons.map((button) => (
-                <button
-                  key={button}
-                  type="button"
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
-                >
-                  {button}
-                </button>
-              ))}
+              <button
+                type="button"
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
+              >
+                Select
+              </button>
+              <button
+                type="button"
+                onClick={addTextLayer}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
+              >
+                Text
+              </button>
+              <button
+                type="button"
+                onClick={addShapeLayer}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
+              >
+                Shape
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-500 transition"
+              >
+                Image
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-500 transition"
+              >
+                Audio
+              </button>
             </div>
 
             <div className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-xs text-slate-300 backdrop-blur">
@@ -164,6 +206,20 @@ export function AppShell() {
                 <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Selection</p>
                 {selectedObject ? (
                   <div className="mt-3 space-y-3 text-sm text-slate-300">
+                    <label className="block space-y-2">
+                      <span className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                        Layer Name
+                      </span>
+                      <input
+                        value={selectedLayer?.name ?? ""}
+                        onChange={(event) => {
+                          if (selectedId) {
+                            renameLayer(selectedId, event.target.value);
+                          }
+                        }}
+                        className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                      />
+                    </label>
                     <DetailRow label="Type" value={selectedObject.type} />
                     <DetailRow
                       label="Position"
@@ -201,6 +257,132 @@ export function AppShell() {
                         Delete Selected Keyframe
                       </button>
                     ) : null}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <label className="space-y-1 text-xs text-slate-400">
+                        X
+                        <input
+                          type="number"
+                          value={selectedLayer?.object.transform.x ?? 0}
+                          onChange={(event) => {
+                            if (selectedId && selectedLayer) {
+                              updateLayerPosition(
+                                selectedId,
+                                Number(event.target.value),
+                                selectedLayer.object.transform.y,
+                              );
+                            }
+                          }}
+                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs text-slate-400">
+                        Y
+                        <input
+                          type="number"
+                          value={selectedLayer?.object.transform.y ?? 0}
+                          onChange={(event) => {
+                            if (selectedId && selectedLayer) {
+                              updateLayerPosition(
+                                selectedId,
+                                selectedLayer.object.transform.x,
+                                Number(event.target.value),
+                              );
+                            }
+                          }}
+                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs text-slate-400">
+                        Opacity
+                        <input
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={selectedLayer?.object.opacity ?? 1}
+                          onChange={(event) => {
+                            if (selectedId) {
+                              updateLayerOpacity(selectedId, Number(event.target.value));
+                            }
+                          }}
+                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs text-slate-400">
+                        Color
+                        <input
+                          type="color"
+                          value={selectedLayer?.object.style.color ?? "#ffffff"}
+                          onChange={(event) => {
+                            if (selectedId) {
+                              updateLayerColor(selectedId, event.target.value);
+                            }
+                          }}
+                          className="h-10 w-full rounded-xl border border-white/10 bg-black/30 px-2 py-1"
+                        />
+                      </label>
+                    </div>
+                    {selectedLayer?.type === "text" &&
+                    selectedLayer.object.content &&
+                    "value" in selectedLayer.object.content ? (
+                      <label className="block space-y-2">
+                        <span className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                          Text
+                        </span>
+                        <textarea
+                          value={selectedLayer.object.content.value}
+                          onChange={(event) => {
+                            if (selectedId) {
+                              updateTextLayer(selectedId, event.target.value);
+                            }
+                          }}
+                          rows={3}
+                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                        />
+                      </label>
+                    ) : null}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => selectedId && toggleLayerVisibility(selectedId)}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
+                      >
+                        {selectedLayer?.visible ? (
+                          <Eye className="h-3.5 w-3.5" />
+                        ) : (
+                          <EyeOff className="h-3.5 w-3.5" />
+                        )}
+                        {selectedLayer?.visible ? "Visible" : "Hidden"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectedId && toggleLayerLock(selectedId)}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
+                      >
+                        {selectedLayer?.locked ? (
+                          <Lock className="h-3.5 w-3.5" />
+                        ) : (
+                          <LockOpen className="h-3.5 w-3.5" />
+                        )}
+                        {selectedLayer?.locked ? "Locked" : "Unlocked"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectedId && reorderLayer(selectedId, "up")}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                        Move Up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectedId && reorderLayer(selectedId, "down")}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                        Move Down
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <p className="mt-3 text-sm text-slate-400">
