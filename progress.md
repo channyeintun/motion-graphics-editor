@@ -7,8 +7,8 @@ Track the implementation of Option 1 (using `@xstate/store-react` for viewport i
 - [x] **Task 1: Implement viewportStore**
   - [x] Create `src/editor/store/viewportStore.ts` using `@xstate/store`'s `createStore`.
   - [x] Define initial context and event reducers for modes and dropdowns.
-- [ ] **Task 2: Refactor Zustand Store**
-  - [ ] Remove viewport interaction fields and actions from `src/editor/store/editorStore.ts`.
+- [x] **Task 2: Refactor Zustand Store**
+  - [x] Remove viewport interaction fields and actions from `src/editor/store/editorStore.ts`.
 - [ ] **Task 3: Refactor Viewport Component**
   - [ ] Integrate `@xstate/store-react` `useSelector` in `src/editor/preview/PreviewViewport.tsx`.
 - [ ] **Task 4: Refactor AppShell Controls**

@@ -21,8 +21,6 @@ type EditorState = {
   currentTime: number;
   isPlaying: boolean;
   loopPlayback: boolean;
-  interactionMode: "select" | "pan" | "orbit";
-  transformMode: "translate" | "rotate" | "scale";
   selectLayer: (layerId: string | null, additive?: boolean) => void;
   selectClip: (clipId: string | null) => void;
   selectKeyframe: (keyframeId: string | null) => void;
@@ -30,8 +28,6 @@ type EditorState = {
   addTextLayer: () => void;
   addShapeLayer: (shape?: "rectangle" | "circle" | "triangle" | "star" | "polygon") => void;
   add3DModelLayer: (shape: "cube" | "sphere" | "cylinder" | "cone" | "torus") => void;
-  setInteractionMode: (mode: "select" | "pan" | "orbit") => void;
-  setTransformMode: (mode: "translate" | "rotate" | "scale") => void;
   addImageLayer: (name: string, src: string, width: number, height: number) => void;
   addAudioLayer: (name: string, src: string, waveform: number[], duration: number) => void;
   renameLayer: (layerId: string, name: string) => void;
@@ -219,14 +215,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   currentTime: 0,
   isPlaying: false,
   loopPlayback: true,
-  interactionMode: "select",
-  transformMode: "translate",
-  setInteractionMode: (interactionMode) => {
-    set({ interactionMode });
-  },
-  setTransformMode: (transformMode) => {
-    set({ transformMode });
-  },
   selectLayer: (layerId, additive = false) => {
     set((state) => {
       if (!layerId) {
