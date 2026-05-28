@@ -32,6 +32,7 @@ type PreviewViewportProps = {
   onScale: (id: string, scaleX: number, scaleY: number) => void;
   onRotate: (id: string, rotation: number) => void;
   showGuides?: boolean;
+  showEditorChrome?: boolean;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 };
 
@@ -88,6 +89,7 @@ export function PreviewViewport({
   onScale,
   onRotate,
   showGuides = true,
+  showEditorChrome = true,
   onCanvasReady,
 }: PreviewViewportProps) {
   const interactionMode = useSelector(viewportStore, (state) => state.context.interactionMode);
@@ -96,7 +98,11 @@ export function PreviewViewport({
   const [hoverCursor, setHoverCursor] = useState<PreviewCursor>("default");
   const [viewportOffset, setViewportOffset] = useState({ x: 0, y: 0 });
   const selectedObject = objects.find((object) => object.id === selectedId) ?? null;
-  const previewCursor = dragState ? getDragCursor(dragState) : hoverCursor;
+  const previewCursor = showEditorChrome
+    ? dragState
+      ? getDragCursor(dragState)
+      : hoverCursor
+    : "default";
 
   const guideLines = useMemo(
     () => [
@@ -212,7 +218,7 @@ export function PreviewViewport({
           <ambientLight intensity={1.4} />
           <directionalLight position={[2, 4, 10]} intensity={0.65} />
 
-          <OrbitCameraGizmo orbitActive={interactionMode === "orbit"} />
+          {showEditorChrome ? <OrbitCameraGizmo orbitActive={interactionMode === "orbit"} /> : null}
 
           {interactionMode === "orbit" ? (
             <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
@@ -243,7 +249,7 @@ export function PreviewViewport({
           ) : null}
 
           <group position={[viewportOffset.x, viewportOffset.y, 0]}>
-            {showGuides
+            {showEditorChrome && showGuides
               ? guideLines.map((guideLine, index) => (
                   <mesh key={index} position={guideLine.position} scale={guideLine.scale}>
                     <planeGeometry args={[1, 1]} />
@@ -256,7 +262,7 @@ export function PreviewViewport({
               <PreviewNode
                 key={object.id}
                 object={object}
-                selected={object.id === selectedId}
+                selected={showEditorChrome && object.id === selectedId}
                 animationTime={sceneState.incomingTime}
                 onPointerDown={(event) => {
                   event.stopPropagation();
@@ -278,7 +284,10 @@ export function PreviewViewport({
               />
             ))}
 
-            {selectedObject && !selectedObject.locked && interactionMode === "select" ? (
+            {showEditorChrome &&
+            selectedObject &&
+            !selectedObject.locked &&
+            interactionMode === "select" ? (
               <TransformHandles
                 object={selectedObject}
                 transformMode={transformMode}
@@ -319,7 +328,7 @@ export function PreviewViewport({
           </group>
         </Canvas>
 
-        {selectedObject ? (
+        {showEditorChrome && selectedObject ? (
           <div className="pointer-events-none absolute bottom-4 left-4 rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-xs text-slate-700 backdrop-blur">
             <span className="font-semibold text-slate-900">{selectedObject.name}</span>
             <span className="ml-2">
@@ -384,22 +393,31 @@ function OrbitCameraGizmo({ orbitActive }: { orbitActive: boolean }) {
 
   return (
     <GizmoHelper alignment="top-right" margin={[74, 74]} renderPriority={1}>
-      <group scale={0.92}>
-        <mesh position={[0, 0, -0.04]} renderOrder={2}>
-          <circleGeometry args={[1.52, 64]} />
+      <group>
+        <mesh position={[0.06, -0.08, -0.08]} renderOrder={1}>
+          <circleGeometry args={[42, 64]} />
           <meshBasicMaterial
-            color="#111318"
+            color="#000000"
             transparent
-            opacity={orbitActive ? 0.96 : 0.82}
+            opacity={orbitActive ? 0.2 : 0.12}
             toneMapped={false}
           />
         </mesh>
-        <mesh position={[0, 0, -0.02]} renderOrder={3}>
-          <ringGeometry args={[1.03, 1.15, 64]} />
+        <mesh position={[0, 0, -0.05]} renderOrder={2}>
+          <circleGeometry args={[38, 64]} />
           <meshBasicMaterial
-            color="#2c2f35"
+            color="#111111"
             transparent
-            opacity={orbitActive ? 0.96 : 0.74}
+            opacity={orbitActive ? 0.98 : 0.9}
+            toneMapped={false}
+          />
+        </mesh>
+        <mesh position={[0, 0, -0.03]} renderOrder={3}>
+          <ringGeometry args={[37.25, 38.8, 64]} />
+          <meshBasicMaterial
+            color="#2f3137"
+            transparent
+            opacity={orbitActive ? 0.9 : 0.72}
             toneMapped={false}
           />
         </mesh>

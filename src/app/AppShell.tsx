@@ -131,6 +131,14 @@ const MAX_HISTORY_ENTRIES = 100;
 const MIN_EXPORT_HEIGHT = 1080;
 const EXPORT_VIDEO_BITRATE = 16_000_000;
 
+type PreviewExportStatus = {
+  format: "webm";
+  phase: "preparing" | "rendering" | "encoding";
+  progress: number;
+  currentFrame: number;
+  totalFrames: number;
+};
+
 type ResolvedAssetUrlEntry = {
   url: string;
   revoke: boolean;
@@ -231,6 +239,48 @@ function drawCompositeExportFrame(
   return true;
 }
 
+function PreviewExportOverlay({ status }: { status: PreviewExportStatus }) {
+  const progressPercent = Math.round(status.progress * 100);
+  const title =
+    status.phase === "preparing"
+      ? "Preparing WebM export"
+      : status.phase === "rendering"
+        ? "Rendering preview video"
+        : "Encoding WebM file";
+  const detail =
+    status.phase === "rendering"
+      ? `${Math.max(1, status.currentFrame)} / ${status.totalFrames} frames`
+      : status.phase === "encoding"
+        ? "Finalizing download"
+        : "Hiding editor chrome and syncing the preview";
+
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/18 backdrop-blur-[2px]">
+      <div className="w-full max-w-80 rounded-[28px] border border-white/10 bg-black/78 px-5 py-4 text-white shadow-[0_24px_70px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-white/12 bg-white/6">
+            <div className="h-4.5 w-4.5 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-white">{title}</p>
+            <p className="text-xs text-slate-300">{detail}</p>
+          </div>
+          <div className="text-right text-xs font-medium text-slate-200">{progressPercent}%</div>
+        </div>
+        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full bg-[linear-gradient(90deg,#6ea8ff_0%,#8b5cf6_55%,#22d3ee_100%)] transition-[width] duration-150"
+            style={{ width: `${Math.max(8, progressPercent)}%` }}
+          />
+        </div>
+        <p className="mt-3 text-[11px] text-slate-400">
+          The orbit gizmo and other editor overlays stay out of the export.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -251,6 +301,8 @@ export function AppShell() {
   const [showGuides, setShowGuides] = useState(true);
   const [showInspectorOverlay] = useState(true);
   const [timelineZoom, setTimelineZoom] = useState(140);
+  const [hidePreviewChrome, setHidePreviewChrome] = useState(false);
+  const [previewExportStatus, setPreviewExportStatus] = useState<PreviewExportStatus | null>(null);
 
   const interactionMode = useSelector(viewportStore, (state) => state.context.interactionMode);
   const transformMode = useSelector(viewportStore, (state) => state.context.transformMode);
@@ -303,6 +355,10 @@ export function AppShell() {
     },
     [updateTransformProperty],
   );
+  const waitForPreviewRefresh = useCallback(async () => {
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+  }, []);
   const moveClip = useEditorStore((state) => state.moveClip);
   const trimClip = useEditorStore((state) => state.trimClip);
   const setClipEnabled = useEditorStore((state) => state.setClipEnabled);
@@ -900,133 +956,217 @@ export function AppShell() {
   };
 
   const handleExportPng = () => {
-    const canvas = previewCanvasRef.current;
-
-    if (!canvas) {
+    if (previewExportBusy) {
       return;
     }
 
-    const compositeCanvas = createCompositeExportCanvas(canvas);
+    void (async () => {
+      const canvas = previewCanvasRef.current;
 
-    if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
-      return;
-    }
+      if (!canvas) {
+        return;
+      }
 
-    const link = document.createElement("a");
-    link.href = compositeCanvas.toDataURL("image/png");
-    link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.png`;
-    link.click();
+      try {
+        await runWithHiddenPreviewChrome(async () => {
+          const compositeCanvas = createCompositeExportCanvas(canvas);
+
+          if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
+            throw new Error("Preview image export failed.");
+          }
+
+          const link = document.createElement("a");
+          link.href = compositeCanvas.toDataURL("image/png");
+          link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.png`;
+          link.click();
+        });
+      } catch (error) {
+        console.warn("Failed to export preview PNG.", error);
+        window.alert("Could not export that preview image.");
+      }
+    })();
   };
 
   const handleExportWebm = () => {
+    if (previewExportBusy) {
+      return;
+    }
+
     void (async () => {
       const canvas = previewCanvasRef.current;
       const mimeType = getSupportedWebmMimeType();
 
       if (!canvas || typeof MediaRecorder === "undefined" || !mimeType) {
+        window.alert("WebM export is not supported in this browser.");
         return;
       }
-
-      const compositeCanvas = createCompositeExportCanvas(canvas);
-
-      if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
-        return;
-      }
-
-      const stream = compositeCanvas.captureStream(0);
-      const videoTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined;
       const previousLoopPlayback = loopPlayback;
       const previousIsPlaying = isPlaying;
       const previousTime = playbackTimeRef.current;
-      const chunks: Blob[] = [];
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: EXPORT_VIDEO_BITRATE,
-      });
-      const finishRecording = new Promise<Blob>((resolve, reject) => {
-        recorder.onerror = (event) => {
-          reject(event.error ?? new Error("Video export failed."));
-        };
-        recorder.onstop = () => {
-          resolve(new Blob(chunks, { type: mimeType }));
-        };
-      });
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunks.push(event.data);
-        }
+      const exportFps = Math.max(1, Math.round(project.fps));
+      const frameCount = Math.max(1, Math.ceil(project.duration * exportFps));
+      const exportRuntime: {
+        stream: MediaStream | null;
+        recorder: MediaRecorder | null;
+      } = {
+        stream: null,
+        recorder: null,
       };
 
       try {
-        setPlaying(false);
-        setLoopPlayback(false);
-        recorder.start();
+        setPreviewExportStatus({
+          format: "webm",
+          phase: "preparing",
+          progress: 0,
+          currentFrame: 0,
+          totalFrames: frameCount,
+        });
 
-        const exportFps = Math.max(1, Math.round(project.fps));
-        const frameCount = Math.max(1, Math.ceil(project.duration * exportFps));
+        await runWithHiddenPreviewChrome(async () => {
+          const compositeCanvas = createCompositeExportCanvas(canvas);
 
-        if (videoTrack && typeof videoTrack.requestFrame === "function") {
-          for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-            const frameTime = Math.min(project.duration, frameIndex / exportFps);
-
-            seek(frameTime);
-            await waitForAnimationFrame();
-            drawCompositeExportFrame(compositeCanvas, canvas, sampleSceneState(project, frameTime));
-            videoTrack.requestFrame();
+          if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
+            throw new Error("Preview video export failed.");
           }
-        } else {
-          let compositeFrameId = 0;
 
-          const drawFrame = () => {
-            drawCompositeExportFrame(
-              compositeCanvas,
-              canvas,
-              sampleSceneState(project, playbackTimeRef.current),
-            );
-            compositeFrameId = window.requestAnimationFrame(drawFrame);
+          exportRuntime.stream = compositeCanvas.captureStream(0);
+          const videoTrack = exportRuntime.stream.getVideoTracks()[0] as
+            | CanvasCaptureMediaStreamTrack
+            | undefined;
+          const chunks: Blob[] = [];
+
+          exportRuntime.recorder = new MediaRecorder(exportRuntime.stream, {
+            mimeType,
+            videoBitsPerSecond: EXPORT_VIDEO_BITRATE,
+          });
+          const recorder = exportRuntime.recorder;
+
+          const finishRecording = new Promise<Blob>((resolve, reject) => {
+            recorder.onerror = (event) => {
+              reject(event.error ?? new Error("Video export failed."));
+            };
+            recorder.onstop = () => {
+              resolve(new Blob(chunks, { type: mimeType }));
+            };
+          });
+
+          recorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              chunks.push(event.data);
+            }
           };
 
-          seek(0);
-          await waitForAnimationFrame();
-          drawFrame();
-          setPlaying(true);
+          setPlaying(false);
+          setLoopPlayback(false);
+          recorder.start();
 
-          await new Promise<void>((resolve) => {
-            window.setTimeout(
-              () => {
-                if (compositeFrameId) {
-                  window.cancelAnimationFrame(compositeFrameId);
-                }
+          if (videoTrack && typeof videoTrack.requestFrame === "function") {
+            for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+              const frameTime = Math.min(project.duration, frameIndex / exportFps);
 
-                resolve();
-              },
-              project.duration * 1000 + Math.ceil(1000 / exportFps),
-            );
+              seek(frameTime);
+              await waitForAnimationFrame();
+
+              if (
+                !drawCompositeExportFrame(
+                  compositeCanvas,
+                  canvas,
+                  sampleSceneState(project, frameTime),
+                )
+              ) {
+                throw new Error("Preview video export failed.");
+              }
+
+              const completedFrames = frameIndex + 1;
+              setPreviewExportStatus({
+                format: "webm",
+                phase: "rendering",
+                progress: completedFrames / frameCount,
+                currentFrame: completedFrames,
+                totalFrames: frameCount,
+              });
+              videoTrack.requestFrame();
+            }
+          } else {
+            let compositeFrameId = 0;
+
+            const drawFrame = () => {
+              const sampledState = sampleSceneState(project, playbackTimeRef.current);
+              const safeProgress =
+                project.duration > 0
+                  ? Math.min(playbackTimeRef.current / project.duration, 0.98)
+                  : 1;
+
+              drawCompositeExportFrame(compositeCanvas, canvas, sampledState);
+              setPreviewExportStatus({
+                format: "webm",
+                phase: "rendering",
+                progress: safeProgress,
+                currentFrame: Math.max(1, Math.round(safeProgress * frameCount)),
+                totalFrames: frameCount,
+              });
+              compositeFrameId = window.requestAnimationFrame(drawFrame);
+            };
+
+            seek(0);
+            await waitForAnimationFrame();
+            drawFrame();
+            setPlaying(true);
+
+            await new Promise<void>((resolve) => {
+              window.setTimeout(
+                () => {
+                  if (compositeFrameId) {
+                    window.cancelAnimationFrame(compositeFrameId);
+                  }
+
+                  resolve();
+                },
+                project.duration * 1000 + Math.ceil(1000 / exportFps),
+              );
+            });
+          }
+
+          setPreviewExportStatus({
+            format: "webm",
+            phase: "encoding",
+            progress: 1,
+            currentFrame: frameCount,
+            totalFrames: frameCount,
           });
-        }
 
-        if (recorder.state !== "inactive") {
-          recorder.stop();
-        }
+          if (recorder.state !== "inactive") {
+            recorder.stop();
+          }
 
-        const blob = await finishRecording;
-        downloadBlob(blob, `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.webm`);
+          const blob = await finishRecording;
+          downloadBlob(blob, `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.webm`);
+        });
       } catch (error) {
         console.warn("Failed to export preview video.", error);
         window.alert("Could not export that preview video.");
 
-        if (recorder.state !== "inactive") {
-          recorder.stop();
+        const activeRecorder = exportRuntime.recorder;
+
+        if (activeRecorder && activeRecorder.state !== "inactive") {
+          activeRecorder.stop();
         }
       } finally {
-        stream.getTracks().forEach((track) => track.stop());
+        setPreviewExportStatus(null);
+        const activeStream = exportRuntime.stream;
+
+        if (activeStream) {
+          activeStream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+        }
+
         seek(previousTime);
         setLoopPlayback(previousLoopPlayback);
         setPlaying(previousIsPlaying);
       }
     })();
   };
+
+  const previewExportBusy = hidePreviewChrome || previewExportStatus !== null;
 
   const projectFileSection = (
     <InspectorSection title="Project">
@@ -1052,7 +1192,8 @@ export function AppShell() {
         <button
           type="button"
           onClick={handleExportPng}
-          className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+          disabled={previewExportBusy}
+          className={`inline-flex h-8 items-center gap-1 rounded-full border border-white/10 px-3 text-[11px] transition ${previewExportBusy ? "cursor-not-allowed bg-white/4 text-slate-500" : "bg-white/5 text-slate-300 hover:bg-white/10"}`}
           title="Export preview PNG"
         >
           PNG
@@ -1060,10 +1201,20 @@ export function AppShell() {
         <button
           type="button"
           onClick={handleExportWebm}
-          className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+          disabled={previewExportBusy}
+          className={`inline-flex h-8 items-center gap-1 rounded-full border border-white/10 px-3 text-[11px] transition ${previewExportBusy ? "cursor-not-allowed bg-white/4 text-slate-500" : "bg-white/5 text-slate-300 hover:bg-white/10"}`}
           title="Export preview WebM"
         >
-          WebM
+          {previewExportStatus ? (
+            <>
+              <span className="h-3 w-3 animate-spin rounded-full border border-slate-500/40 border-t-slate-200" />
+              {previewExportStatus.phase === "encoding"
+                ? "Encoding"
+                : `${Math.max(1, Math.round(previewExportStatus.progress * 100))}%`}
+            </>
+          ) : (
+            "WebM"
+          )}
         </button>
         <button
           type="button"
@@ -1110,6 +1261,21 @@ export function AppShell() {
     TRANSFORM_TOOL_OPTIONS.find((option) => option.mode === transformMode) ??
     TRANSFORM_TOOL_OPTIONS[0];
   const ActiveTransformIcon = activeTransformTool.icon;
+
+  const runWithHiddenPreviewChrome = useCallback(
+    async (task: () => Promise<void>) => {
+      setHidePreviewChrome(true);
+      await waitForPreviewRefresh();
+
+      try {
+        await task();
+      } finally {
+        setHidePreviewChrome(false);
+        await waitForAnimationFrame();
+      }
+    },
+    [waitForPreviewRefresh],
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1261,10 +1427,13 @@ export function AppShell() {
               onScale={handleScale}
               onRotate={handleRotate}
               showGuides={showGuides}
+              showEditorChrome={!hidePreviewChrome}
               onCanvasReady={(canvas) => {
                 previewCanvasRef.current = canvas;
               }}
             />
+
+            {previewExportStatus ? <PreviewExportOverlay status={previewExportStatus} /> : null}
 
             {/* Bottom floating toolbar */}
             <div className="absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
