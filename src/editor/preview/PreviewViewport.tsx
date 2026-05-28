@@ -1,6 +1,7 @@
-import { Text, useTexture } from "@react-three/drei";
+import { OrbitControls, Text, useTexture } from "@react-three/drei";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { useMemo, useState } from "react";
+import * as THREE from "three";
 import type { PreviewObject } from "../model/preview";
 
 type PreviewViewportProps = {
@@ -8,7 +9,7 @@ type PreviewViewportProps = {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, nextX: number, nextY: number) => void;
-  interactionMode?: "select" | "pan";
+  interactionMode?: "select" | "pan" | "orbit";
   showGuides?: boolean;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 };
@@ -92,27 +93,33 @@ export function PreviewViewport({
           <ambientLight intensity={1.4} />
           <directionalLight position={[2, 4, 10]} intensity={0.65} />
 
-          <mesh
-            position={[0, 0, -0.1]}
-            onPointerDown={(event) => {
-              if (interactionMode === "pan") {
-                setDragState({
-                  type: "pan",
-                  startX: event.point.x,
-                  startY: event.point.y,
-                  originX: viewportOffset.x,
-                  originY: viewportOffset.y,
-                });
-                return;
-              }
+          {interactionMode === "orbit" ? (
+            <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
+          ) : null}
 
-              onSelect(null);
-            }}
-            onPointerMove={handlePointerMove}
-          >
-            <planeGeometry args={[9.2, 9.2]} />
-            <meshBasicMaterial transparent opacity={0} />
-          </mesh>
+          {interactionMode !== "orbit" ? (
+            <mesh
+              position={[0, 0, -0.1]}
+              onPointerDown={(event) => {
+                if (interactionMode === "pan") {
+                  setDragState({
+                    type: "pan",
+                    startX: event.point.x,
+                    startY: event.point.y,
+                    originX: viewportOffset.x,
+                    originY: viewportOffset.y,
+                  });
+                  return;
+                }
+
+                onSelect(null);
+              }}
+              onPointerMove={handlePointerMove}
+            >
+              <planeGeometry args={[9.2, 9.2]} />
+              <meshBasicMaterial transparent opacity={0} />
+            </mesh>
+          ) : null}
 
           <group position={[viewportOffset.x, viewportOffset.y, 0]}>
             {showGuides
@@ -177,7 +184,7 @@ type PreviewContentProps = {
 function PreviewNode({ object, selected, onPointerDown }: PreviewNodeProps) {
   return (
     <group
-      position={[object.x, object.y, 0.5]}
+      position={[object.x, object.y, object.type === "model" ? 0.65 : 0.5]}
       rotation={[0, 0, object.rotation]}
       scale={[object.scaleX, object.scaleY, 1]}
     >
@@ -190,6 +197,9 @@ function PreviewNode({ object, selected, onPointerDown }: PreviewNodeProps) {
       ) : null}
       {object.type === "image" ? (
         <PreviewImage object={object} onPointerDown={onPointerDown} />
+      ) : null}
+      {object.type === "model" ? (
+        <PreviewModel object={object} onPointerDown={onPointerDown} />
       ) : null}
     </group>
   );
@@ -221,10 +231,62 @@ function PreviewShape({ object, onPointerDown }: PreviewContentProps) {
     opacity: object.opacity,
   };
 
+  const starShape = useMemo(() => {
+    if (object.shape !== "star") return new THREE.Shape();
+    const shape = new THREE.Shape();
+    const points = object.points ?? 5;
+    const outerRad = object.radius ?? 0.8;
+    const innerRad = object.innerRadius ?? 0.38;
+    const step = Math.PI / points;
+
+    let rot = (Math.PI / 2) * 3;
+
+    shape.moveTo(Math.cos(rot) * outerRad, Math.sin(rot) * outerRad);
+    for (let i = 0; i < points; i++) {
+      const x1 = Math.cos(rot) * outerRad;
+      const y1 = Math.sin(rot) * outerRad;
+      shape.lineTo(x1, y1);
+      rot += step;
+
+      const x2 = Math.cos(rot) * innerRad;
+      const y2 = Math.sin(rot) * innerRad;
+      shape.lineTo(x2, y2);
+      rot += step;
+    }
+    return shape;
+  }, [object.shape, object.points, object.radius, object.innerRadius]);
+
   if (object.shape === "circle") {
     return (
       <mesh onPointerDown={onPointerDown}>
-        <circleGeometry args={[object.radius ?? 0.48, 64]} />
+        <circleGeometry args={[object.radius ?? 0.58, 64]} />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  if (object.shape === "triangle") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <circleGeometry args={[object.radius ?? 0.8, 3]} />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  if (object.shape === "polygon") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <circleGeometry args={[object.radius ?? 0.8, object.sides ?? 6]} />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  if (object.shape === "star") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <shapeGeometry args={[starShape]} />
         <meshStandardMaterial {...materialProps} />
       </mesh>
     );
@@ -232,7 +294,7 @@ function PreviewShape({ object, onPointerDown }: PreviewContentProps) {
 
   return (
     <mesh onPointerDown={onPointerDown}>
-      <planeGeometry args={[object.width ?? 2.8, object.height ?? 1.1]} />
+      <planeGeometry args={[object.width ?? 2.2, object.height ?? 0.8]} />
       <meshStandardMaterial {...materialProps} />
     </mesh>
   );
@@ -255,8 +317,90 @@ function PreviewImage({ object, onPointerDown }: PreviewContentProps) {
   );
 }
 
+function PreviewModel({ object, onPointerDown }: PreviewContentProps) {
+  const materialProps = {
+    color: object.color,
+    transparent: true,
+    opacity: object.opacity,
+    roughness: 0.4,
+    metalness: 0.1,
+  };
+
+  if (object.shape === "cube") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <boxGeometry args={[object.width ?? 1.3, object.height ?? 1.3, object.depth ?? 1.3]} />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  if (object.shape === "sphere") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <sphereGeometry args={[object.radius ?? 0.8, object.radialSegments ?? 32, 32]} />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  if (object.shape === "cylinder") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <cylinderGeometry
+          args={[
+            object.radius ?? 0.6,
+            object.radius ?? 0.6,
+            object.height ?? 1.4,
+            object.radialSegments ?? 32,
+          ]}
+        />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  if (object.shape === "cone") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <coneGeometry
+          args={[object.radius ?? 0.7, object.height ?? 1.4, object.radialSegments ?? 32]}
+        />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  if (object.shape === "torus") {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <torusGeometry
+          args={[
+            object.radius ?? 0.7,
+            object.tubularRadius ?? 0.22,
+            16,
+            object.radialSegments ?? 32,
+          ]}
+        />
+        <meshStandardMaterial {...materialProps} />
+      </mesh>
+    );
+  }
+
+  return null;
+}
+
 function SelectionFrame({ object }: { object: PreviewObject }) {
   const bounds = getObjectBounds(object);
+
+  if (object.type === "model") {
+    return (
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[bounds.width, bounds.height, bounds.depth ?? 1.3]} />
+        <meshBasicMaterial color="#7c3aed" transparent opacity={0.3} wireframe />
+      </mesh>
+    );
+  }
 
   return (
     <mesh position={[0, 0, 0.1]}>
@@ -269,14 +413,49 @@ function SelectionFrame({ object }: { object: PreviewObject }) {
 function getObjectBounds(object: PreviewObject) {
   if (object.type === "shape") {
     if (object.shape === "circle") {
-      const size = (object.radius ?? 0.48) * 2.5;
+      const size = (object.radius ?? 0.58) * 2.5;
+      return { width: size, height: size };
+    }
+    if (object.shape === "triangle") {
+      const size = (object.radius ?? 0.8) * 2.2;
+      return { width: size, height: size };
+    }
+    if (object.shape === "star") {
+      const size = (object.radius ?? 0.9) * 2.2;
+      return { width: size, height: size };
+    }
+    if (object.shape === "polygon") {
+      const size = (object.radius ?? 0.8) * 2.2;
       return { width: size, height: size };
     }
 
     return {
-      width: (object.width ?? 2.8) + 0.35,
-      height: (object.height ?? 1.1) + 0.35,
+      width: (object.width ?? 2.2) + 0.35,
+      height: (object.height ?? 0.8) + 0.35,
     };
+  }
+
+  if (object.type === "model") {
+    if (object.shape === "cube") {
+      const size = (object.width ?? 1.3) + 0.15;
+      return { width: size, height: size, depth: size };
+    }
+    if (object.shape === "sphere") {
+      const size = (object.radius ?? 0.8) * 2.1;
+      return { width: size, height: size, depth: size };
+    }
+    if (object.shape === "cylinder") {
+      const w = (object.radius ?? 0.6) * 2.1;
+      return { width: w, height: (object.height ?? 1.4) + 0.15, depth: w };
+    }
+    if (object.shape === "cone") {
+      const w = (object.radius ?? 0.7) * 2.1;
+      return { width: w, height: (object.height ?? 1.4) + 0.15, depth: w };
+    }
+    if (object.shape === "torus") {
+      const w = ((object.radius ?? 0.7) + (object.tubularRadius ?? 0.22)) * 2.1;
+      return { width: w, height: w, depth: (object.tubularRadius ?? 0.22) * 2.2 };
+    }
   }
 
   if (object.type === "image") {

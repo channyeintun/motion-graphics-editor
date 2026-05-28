@@ -12,11 +12,11 @@ This document tracks our progress during the execution of the implementation pla
   - [x] Add `add3DModelLayer` action to `editorStore.ts`.
   - [x] Extend `addShapeLayer` action for premium 2D shapes in `editorStore.ts`.
   - [x] Integrate viewport interaction and transform mode fields (`interactionMode`, `transformMode`) into Zustand state.
-- [ ] **Task 3: Expand Viewport Engine Rendering & Camera Orbit**
-  - [ ] Implement R3F meshes for 3D primitives (Box, Sphere, Cylinder, Cone, Torus).
-  - [ ] Implement new 2D shapes (Triangle, Star, Polygon) in the previewer.
-  - [ ] Implement Camera Orbit mode and drag orbit tracking in `PreviewViewport.tsx`.
-  - [ ] Render proper 3D selection indicators and wireframes.
+- [x] **Task 3: Expand Viewport Engine Rendering & Camera Orbit**
+  - [x] Implement R3F meshes for 3D primitives (Box, Sphere, Cylinder, Cone, Torus).
+  - [x] Implement new 2D shapes (Triangle, Star, Polygon) in the previewer.
+  - [x] Implement Camera Orbit controls when `interactionMode === "orbit"` in `PreviewViewport.tsx`.
+  - [x] Render proper 3D selection indicators and wireframes.
 - [ ] **Task 4: Redesign UI Toolbar & Glassmorphic Dropdowns**
   - [ ] Build the Navigation Group capsule (Hand, Orbit Camera) on the left.
   - [ ] Build the layout/grid capsule in the viewport.
