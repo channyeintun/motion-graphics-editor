@@ -2,6 +2,8 @@ import { OrbitControls, Text, useTexture } from "@react-three/drei";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { useMemo, useState } from "react";
 import * as THREE from "three";
+import { useSelector } from "@xstate/store-react";
+import { viewportStore } from "../store/viewportStore";
 import type { PreviewObject } from "../model/preview";
 
 type PreviewViewportProps = {
@@ -9,7 +11,6 @@ type PreviewViewportProps = {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, nextX: number, nextY: number) => void;
-  interactionMode?: "select" | "pan" | "orbit";
   showGuides?: boolean;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 };
@@ -34,10 +35,10 @@ export function PreviewViewport({
   selectedId,
   onSelect,
   onMove,
-  interactionMode = "select",
   showGuides = true,
   onCanvasReady,
 }: PreviewViewportProps) {
+  const interactionMode = useSelector(viewportStore, (state) => state.context.interactionMode);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [viewportOffset, setViewportOffset] = useState({ x: 0, y: 0 });
   const selectedObject = objects.find((object) => object.id === selectedId) ?? null;
