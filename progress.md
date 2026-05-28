@@ -24,6 +24,6 @@ This document tracks our progress during the execution of the implementation pla
   - [x] Build the Cube tool (3D shape dropdown selector).
   - [x] Build the Shape tool (2D shape dropdown selector).
   - [x] Polish styling, transitions, glassmorphic dropdown list, and high-fidelity visuals.
-- [ ] **Task 5: Verification & Polish**
-  - [ ] Ensure formatting (`vp fmt`) and lint checks (`vp check`) pass.
-  - [ ] Perform manual visual sanity checks.
+- [x] **Task 5: Verification & Polish**
+  - [x] Ensure formatting (`vp fmt`) and lint checks (`vp check`) pass.
+  - [x] Perform manual visual sanity checks.
