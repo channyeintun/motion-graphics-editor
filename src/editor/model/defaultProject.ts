@@ -140,7 +140,7 @@ export function createDefaultProject(): Project {
   return {
     id: "motion-editor-project",
     name: "Motion Graphics Editor",
-    version: 2,
+    version: 3,
     width: 1080,
     height: 1080,
     fps: 30,

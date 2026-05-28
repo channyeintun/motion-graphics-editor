@@ -1,4 +1,4 @@
-import { isImportedModelContent, isPrimitiveModelContent } from "./project";
+import { isImageContent, isImportedModelContent, isPrimitiveModelContent } from "./project";
 import type { Layer, ModelAnimationPlayback, ModelAssetFormat } from "./project";
 
 export type PreviewObjectType = "text" | "shape" | "image" | "model";
@@ -8,6 +8,7 @@ export type PreviewObject = {
   name: string;
   type: PreviewObjectType;
   locked: boolean;
+  assetId?: string;
   x: number;
   y: number;
   z: number;
@@ -64,6 +65,7 @@ export function toPreviewObject(
   layer: Layer,
   includeHidden = false,
   currentTime?: number,
+  assetSources?: ReadonlyMap<string, string>,
 ): PreviewObject | null {
   if (!includeHidden && !layer.visible) {
     return null;
@@ -171,6 +173,7 @@ export function toPreviewObject(
       name: layer.name,
       type: "model",
       locked: layer.locked,
+      assetId: object.content.assetId,
       x: object.transform.x,
       y: object.transform.y,
       z: object.transform.z,
@@ -194,7 +197,7 @@ export function toPreviewObject(
       emissive: object.content.emissive,
       emissiveIntensity: object.content.emissiveIntensity,
       wireframe: object.content.wireframe,
-      src: object.content.src,
+      src: assetSources?.get(object.content.assetId) ?? object.content.src,
       modelFormat: object.content.format,
       animationNames: object.content.animationNames,
       activeAnimation: object.content.activeAnimation,
@@ -203,17 +206,13 @@ export function toPreviewObject(
     };
   }
 
-  if (
-    layer.type === "image" &&
-    object.content &&
-    "assetId" in object.content &&
-    "src" in object.content
-  ) {
+  if (layer.type === "image" && isImageContent(object.content)) {
     return {
       id: layer.id,
       name: layer.name,
       type: "image",
       locked: layer.locked,
+      assetId: object.content.assetId,
       x: object.transform.x,
       y: object.transform.y,
       z: object.transform.z,
@@ -229,7 +228,7 @@ export function toPreviewObject(
       color: object.style.color,
       width: object.content.width,
       height: object.content.height,
-      src: object.content.src,
+      src: assetSources?.get(object.content.assetId) ?? object.content.src,
     };
   }
 

@@ -37,6 +37,17 @@ import {
   Undo2,
   Volume2,
 } from "lucide-react";
+import {
+  getAssetPayload,
+  persistInlineProjectAssets,
+  sanitizeProjectForStorage,
+  saveAssetPayload,
+} from "../editor/assets/assetPayloadStore";
+import {
+  buildProjectPackage,
+  parseProjectPackage,
+  PROJECT_PACKAGE_EXTENSION,
+} from "../editor/assets/projectPackage";
 import { sampleLayer } from "../editor/engine/animationSampler";
 import { sampleSceneState } from "../editor/engine/sceneSampler";
 import { toPreviewObject } from "../editor/model/preview";
@@ -115,6 +126,64 @@ const BACKGROUND_ANIMATION_OPTIONS: {
   { value: "pulse", label: "Pulse" },
 ];
 
+const MAX_HISTORY_ENTRIES = 100;
+
+type ResolvedAssetUrlEntry = {
+  url: string;
+  revoke: boolean;
+};
+
+function pushProjectSnapshot(history: Project[], snapshot: Project) {
+  history.push(snapshot);
+
+  if (history.length > MAX_HISTORY_ENTRIES) {
+    history.shift();
+  }
+}
+
+function snapshotResolvedAssetUrls(entries: Map<string, ResolvedAssetUrlEntry>) {
+  return Object.fromEntries([...entries].map(([assetId, entry]) => [assetId, entry.url]));
+}
+
+function revokeResolvedAssetUrls(entries: Iterable<ResolvedAssetUrlEntry>) {
+  for (const entry of entries) {
+    if (!entry.revoke) {
+      continue;
+    }
+
+    URL.revokeObjectURL(entry.url);
+  }
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function getAssetDisplayName(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, "");
+}
+
+function getProjectFileName(project: Project, extension: string) {
+  const baseName = project.name.toLowerCase().replaceAll(/\s+/g, "-");
+  return `${baseName}${extension}`;
+}
+
+function getImportMimeType(file: File, fallback: string) {
+  return file.type || fallback;
+}
+
+function getModelImportMimeType(file: File) {
+  return (
+    file.type || (getModelFormat(file.name) === "gltf" ? "model/gltf+json" : "model/gltf-binary")
+  );
+}
+
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -126,8 +195,12 @@ export function AppShell() {
   const historyRef = useRef<Project[]>([]);
   const futureRef = useRef<Project[]>([]);
   const skipHistoryRef = useRef(false);
-  const lastProjectRef = useRef<string>("");
+  const lastProjectRef = useRef<Project | null>(null);
+  const saveRequestRef = useRef(0);
+  const assetUrlEntriesRef = useRef(new Map<string, ResolvedAssetUrlEntry>());
+  const activeProjectIdRef = useRef<string | null>(null);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
+  const [resolvedAssetUrls, setResolvedAssetUrls] = useState<Record<string, string>>({});
   const [showGuides, setShowGuides] = useState(true);
   const [showInspectorOverlay] = useState(true);
   const [timelineZoom, setTimelineZoom] = useState(140);
@@ -213,19 +286,33 @@ export function AppShell() {
     [project.layers, sceneState.outgoingScene, sceneState.outgoingTime],
   );
 
+  const assetSources = useMemo(() => {
+    const nextSources = new Map<string, string>();
+
+    for (const asset of project.assets) {
+      const assetSource = resolvedAssetUrls[asset.id] ?? asset.src;
+
+      if (assetSource) {
+        nextSources.set(asset.id, assetSource);
+      }
+    }
+
+    return nextSources;
+  }, [project.assets, resolvedAssetUrls]);
+
   const previewObjects = useMemo(
     () =>
       sampledLayers
-        .map((layer) => toPreviewObject(layer, false, sceneState.incomingTime))
+        .map((layer) => toPreviewObject(layer, false, sceneState.incomingTime, assetSources))
         .filter((object) => object !== null),
-    [sampledLayers, sceneState.incomingTime],
+    [assetSources, sampledLayers, sceneState.incomingTime],
   );
   const outgoingPreviewObjects = useMemo(
     () =>
       outgoingSampledLayers
-        .map((layer) => toPreviewObject(layer, false, sceneState.outgoingTime))
+        .map((layer) => toPreviewObject(layer, false, sceneState.outgoingTime, assetSources))
         .filter((object) => object !== null),
-    [outgoingSampledLayers, sceneState.outgoingTime],
+    [assetSources, outgoingSampledLayers, sceneState.outgoingTime],
   );
 
   const selectedId = selectedLayerIds[0] ?? null;
@@ -260,8 +347,9 @@ export function AppShell() {
       sampleLayer(selectedLayer, sceneState.incomingTime),
       true,
       sceneState.incomingTime,
+      assetSources,
     );
-  }, [sceneState.incomingTime, selectedLayer]);
+  }, [assetSources, sceneState.incomingTime, selectedLayer]);
   const activeScene = useMemo(
     () =>
       project.scenes.find((scene) => scene.id === selectedSceneId) ??
@@ -330,12 +418,38 @@ export function AppShell() {
     });
   }, []);
 
-  const saveProject = useEffectEvent((nextProject: Project) => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextProject));
-    } catch (error) {
-      console.warn("Failed to persist motion graphics project.", error);
+  const registerResolvedAssetUrl = useCallback((assetId: string, url: string) => {
+    const previousEntry = assetUrlEntriesRef.current.get(assetId);
+
+    if (previousEntry?.revoke) {
+      URL.revokeObjectURL(previousEntry.url);
     }
+
+    assetUrlEntriesRef.current.set(assetId, { url, revoke: true });
+    setResolvedAssetUrls(snapshotResolvedAssetUrls(assetUrlEntriesRef.current));
+  }, []);
+
+  const saveProject = useEffectEvent((nextProject: Project) => {
+    const saveRequestId = saveRequestRef.current + 1;
+
+    saveRequestRef.current = saveRequestId;
+
+    void (async () => {
+      try {
+        await persistInlineProjectAssets(nextProject);
+
+        if (saveRequestRef.current !== saveRequestId) {
+          return;
+        }
+
+        window.localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify(sanitizeProjectForStorage(nextProject)),
+        );
+      } catch (error) {
+        console.warn("Failed to persist motion graphics project.", error);
+      }
+    })();
   });
 
   useEffect(() => {
@@ -349,28 +463,26 @@ export function AppShell() {
   }, [project]);
 
   useEffect(() => {
-    const serializedProject = JSON.stringify(project);
-
     if (!lastProjectRef.current) {
-      lastProjectRef.current = serializedProject;
+      lastProjectRef.current = project;
       syncHistoryState();
       return;
     }
 
-    if (serializedProject === lastProjectRef.current) {
+    if (project === lastProjectRef.current) {
       return;
     }
 
     if (skipHistoryRef.current) {
       skipHistoryRef.current = false;
-      lastProjectRef.current = serializedProject;
+      lastProjectRef.current = project;
       syncHistoryState();
       return;
     }
 
-    historyRef.current.push(JSON.parse(lastProjectRef.current) as Project);
+    pushProjectSnapshot(historyRef.current, lastProjectRef.current);
     futureRef.current = [];
-    lastProjectRef.current = serializedProject;
+    lastProjectRef.current = project;
     syncHistoryState();
   }, [project, syncHistoryState]);
 
@@ -410,6 +522,102 @@ export function AppShell() {
   }, [isPlaying, loopPlayback, project.duration, seek, setPlaying]);
 
   useEffect(() => {
+    if (activeProjectIdRef.current !== project.id) {
+      revokeResolvedAssetUrls(assetUrlEntriesRef.current.values());
+      assetUrlEntriesRef.current.clear();
+      activeProjectIdRef.current = project.id;
+      setResolvedAssetUrls({});
+    }
+
+    const activeAssetIds = new Set(project.assets.map((asset) => asset.id));
+    let removedAsset = false;
+
+    for (const [assetId, entry] of assetUrlEntriesRef.current) {
+      if (activeAssetIds.has(assetId)) {
+        continue;
+      }
+
+      if (entry.revoke) {
+        URL.revokeObjectURL(entry.url);
+      }
+
+      assetUrlEntriesRef.current.delete(assetId);
+      removedAsset = true;
+    }
+
+    if (removedAsset) {
+      setResolvedAssetUrls(snapshotResolvedAssetUrls(assetUrlEntriesRef.current));
+    }
+
+    const unresolvedAssets = project.assets.filter(
+      (asset) => !asset.src && !assetUrlEntriesRef.current.has(asset.id),
+    );
+
+    if (unresolvedAssets.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      const loadedEntries: Array<[string, ResolvedAssetUrlEntry]> = [];
+
+      for (const asset of unresolvedAssets) {
+        const payload = await getAssetPayload(project.id, asset.id);
+
+        if (!payload) {
+          continue;
+        }
+
+        loadedEntries.push([
+          asset.id,
+          {
+            url: URL.createObjectURL(payload.blob),
+            revoke: true,
+          },
+        ]);
+      }
+
+      if (cancelled) {
+        revokeResolvedAssetUrls(loadedEntries.map(([, entry]) => entry));
+        return;
+      }
+
+      let changed = false;
+
+      for (const [assetId, entry] of loadedEntries) {
+        if (assetUrlEntriesRef.current.has(assetId)) {
+          if (entry.revoke) {
+            URL.revokeObjectURL(entry.url);
+          }
+
+          continue;
+        }
+
+        assetUrlEntriesRef.current.set(assetId, entry);
+        changed = true;
+      }
+
+      if (changed) {
+        setResolvedAssetUrls(snapshotResolvedAssetUrls(assetUrlEntriesRef.current));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project.assets, project.id]);
+
+  useEffect(() => {
+    const assetUrlEntries = assetUrlEntriesRef.current;
+
+    return () => {
+      revokeResolvedAssetUrls(assetUrlEntries.values());
+      assetUrlEntries.clear();
+    };
+  }, []);
+
+  useEffect(() => {
     const nextMap = new Map<string, HTMLAudioElement>();
     const previousMap = audioElementsRef.current;
 
@@ -418,9 +626,15 @@ export function AppShell() {
         continue;
       }
 
+      const assetSource = assetSources.get(asset.id);
+
+      if (!assetSource) {
+        continue;
+      }
+
       const existing = audioElementsRef.current.get(asset.id);
-      const audio = existing ?? new Audio(asset.src);
-      audio.src = asset.src;
+      const audio = existing ?? new Audio(assetSource);
+      audio.src = assetSource;
       nextMap.set(asset.id, audio);
     }
 
@@ -434,7 +648,7 @@ export function AppShell() {
     }
 
     audioElementsRef.current = nextMap;
-  }, [project.assets]);
+  }, [assetSources, project.assets]);
 
   useEffect(() => {
     for (const layer of project.layers) {
@@ -478,9 +692,30 @@ export function AppShell() {
       return;
     }
 
-    const contents = await file.text();
-    replaceProject(JSON.parse(contents) as Project);
-    event.target.value = "";
+    try {
+      if (file.name.toLowerCase().endsWith(".json")) {
+        const contents = await file.text();
+        replaceProject(JSON.parse(contents) as Project);
+      } else {
+        const importedPackage = await parseProjectPackage(file);
+
+        await Promise.all(
+          importedPackage.payloads.map((payload) =>
+            saveAssetPayload(importedPackage.project.id, payload.assetId, payload.blob, {
+              fileName: payload.fileName,
+              mimeType: payload.mimeType,
+            }),
+          ),
+        );
+
+        replaceProject(importedPackage.project);
+      }
+    } catch (error) {
+      console.warn("Failed to import project package.", error);
+      window.alert("Could not import that project. Use a .json export or a packaged .mge file.");
+    } finally {
+      event.target.value = "";
+    }
   };
 
   const handleImageImport = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -490,14 +725,40 @@ export function AppShell() {
       return;
     }
 
+    const temporaryUrl = URL.createObjectURL(file);
+    let keepTemporaryUrl = false;
+
     try {
-      const src = await readFileAsDataUrl(file);
-      const { width, height } = await readImageDimensions(src);
+      const assetId = `image-${crypto.randomUUID()}`;
+      const mimeType = getImportMimeType(file, "application/octet-stream");
+      const { width, height } = await readImageDimensions(temporaryUrl);
       const longestSide = Math.max(width, height, 1);
       const previewWidth = Number(((width / longestSide) * 2.8).toFixed(3));
       const previewHeight = Number(((height / longestSide) * 2.8).toFixed(3));
-      addImageLayer(file.name.replace(/\.[^.]+$/, ""), src, previewWidth, previewHeight);
+
+      await saveAssetPayload(project.id, assetId, file, {
+        fileName: file.name,
+        mimeType,
+      });
+
+      addImageLayer(
+        assetId,
+        getAssetDisplayName(file.name),
+        previewWidth,
+        previewHeight,
+        file.name,
+        mimeType,
+      );
+      registerResolvedAssetUrl(assetId, temporaryUrl);
+      keepTemporaryUrl = true;
+    } catch (error) {
+      console.warn("Failed to import image.", error);
+      window.alert("Could not import that image.");
     } finally {
+      if (!keepTemporaryUrl) {
+        URL.revokeObjectURL(temporaryUrl);
+      }
+
       event.target.value = "";
     }
   };
@@ -509,18 +770,38 @@ export function AppShell() {
       return;
     }
 
+    let objectUrl: string | null = null;
+    let keepObjectUrl = false;
+
     try {
-      const [src, metadata] = await Promise.all([readFileAsDataUrl(file), inspectModelFile(file)]);
+      const assetId = `model-${crypto.randomUUID()}`;
+      const mimeType = getModelImportMimeType(file);
+      const metadata = await inspectModelFile(file);
+
+      await saveAssetPayload(project.id, assetId, file, {
+        fileName: file.name,
+        mimeType,
+      });
+
       addImportedModelLayer(
-        file.name.replace(/\.[^.]+$/, ""),
-        src,
+        assetId,
+        getAssetDisplayName(file.name),
         getModelFormat(file.name),
         metadata,
+        file.name,
+        mimeType,
       );
+      objectUrl = URL.createObjectURL(file);
+      registerResolvedAssetUrl(assetId, objectUrl);
+      keepObjectUrl = true;
     } catch (error) {
       console.warn("Failed to import 3D model.", error);
       window.alert("Could not import that model. Use a GLB file or a self-contained GLTF file.");
     } finally {
+      if (objectUrl && !keepObjectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+
       event.target.value = "";
     }
   };
@@ -533,26 +814,53 @@ export function AppShell() {
     }
 
     const audioContext = new AudioContext();
+    let objectUrl: string | null = null;
+    let keepObjectUrl = false;
 
     try {
-      const [src, buffer] = await Promise.all([readFileAsDataUrl(file), file.arrayBuffer()]);
+      const assetId = `audio-${crypto.randomUUID()}`;
+      const mimeType = getImportMimeType(file, "application/octet-stream");
+      const buffer = await file.arrayBuffer();
       const decoded = await audioContext.decodeAudioData(buffer.slice(0));
       const waveform = createWaveform(decoded.getChannelData(0));
-      addAudioLayer(file.name.replace(/\.[^.]+$/, ""), src, waveform, decoded.duration);
+
+      await saveAssetPayload(project.id, assetId, file, {
+        fileName: file.name,
+        mimeType,
+      });
+
+      addAudioLayer(
+        assetId,
+        getAssetDisplayName(file.name),
+        waveform,
+        decoded.duration,
+        file.name,
+        mimeType,
+      );
+      objectUrl = URL.createObjectURL(file);
+      registerResolvedAssetUrl(assetId, objectUrl);
+      keepObjectUrl = true;
+    } catch (error) {
+      console.warn("Failed to import audio.", error);
+      window.alert("Could not import that audio file.");
     } finally {
+      if (objectUrl && !keepObjectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+
       await audioContext.close();
       event.target.value = "";
     }
   };
 
-  const handleExport = () => {
-    const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const handleExport = async () => {
+    try {
+      const blob = await buildProjectPackage(project);
+      downloadBlob(blob, getProjectFileName(project, PROJECT_PACKAGE_EXTENSION));
+    } catch (error) {
+      console.warn("Failed to export project package.", error);
+      window.alert("Could not export that project package.");
+    }
   };
 
   const handleExportPng = () => {
@@ -615,6 +923,56 @@ export function AppShell() {
     });
   };
 
+  const projectFileSection = (
+    <InspectorSection title="Project">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleExport}
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+          title="Export project package"
+        >
+          <Download className="h-3 w-3" />
+          Project
+        </button>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+          title="Import project package or legacy JSON"
+        >
+          <FileUp className="h-3 w-3" />
+          Import
+        </button>
+        <button
+          type="button"
+          onClick={handleExportPng}
+          className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+          title="Export preview PNG"
+        >
+          PNG
+        </button>
+        <button
+          type="button"
+          onClick={handleExportWebm}
+          className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+          title="Export preview WebM"
+        >
+          WebM
+        </button>
+        <button
+          type="button"
+          onClick={() => audioInputRef.current?.click()}
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+          title="Import audio layer"
+        >
+          <Volume2 className="h-3 w-3" />
+          Audio
+        </button>
+      </div>
+    </InspectorSection>
+  );
+
   const undoProject = useCallback(() => {
     const previousProject = historyRef.current.pop();
 
@@ -622,7 +980,7 @@ export function AppShell() {
       return;
     }
 
-    futureRef.current.push(JSON.parse(JSON.stringify(project)) as Project);
+    pushProjectSnapshot(futureRef.current, project);
     skipHistoryRef.current = true;
     syncHistoryState();
     replaceProject(previousProject);
@@ -635,7 +993,7 @@ export function AppShell() {
       return;
     }
 
-    historyRef.current.push(JSON.parse(JSON.stringify(project)) as Project);
+    pushProjectSnapshot(historyRef.current, project);
     skipHistoryRef.current = true;
     syncHistoryState();
     replaceProject(nextProject);
@@ -704,7 +1062,7 @@ export function AppShell() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="application/json"
+        accept=".json,.mge,application/json,application/zip"
         className="hidden"
         onChange={handleImport}
       />
@@ -1624,53 +1982,7 @@ export function AppShell() {
                     </InspectorSection>
                   ) : null}
 
-                  <InspectorSection title="Export">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleExport}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
-                        title="Export project JSON"
-                      >
-                        <Download className="h-3 w-3" />
-                        JSON
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
-                        title="Import project JSON"
-                      >
-                        <FileUp className="h-3 w-3" />
-                        Import
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleExportPng}
-                        className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
-                        title="Export preview PNG"
-                      >
-                        PNG
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleExportWebm}
-                        className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
-                        title="Export preview WebM"
-                      >
-                        WebM
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => audioInputRef.current?.click()}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
-                        title="Import audio layer"
-                      >
-                        <Volume2 className="h-3 w-3" />
-                        Audio
-                      </button>
-                    </div>
-                  </InspectorSection>
+                  {projectFileSection}
                 </div>
               ) : (
                 <div className="space-y-4 p-5 text-sm text-slate-200 md:max-h-[62vh] md:overflow-y-auto">
@@ -1696,6 +2008,7 @@ export function AppShell() {
                       stay available above.
                     </p>
                   </div>
+                  {projectFileSection}
                 </div>
               )}
             </section>
@@ -1811,25 +2124,6 @@ function createWaveform(channelData: Float32Array) {
   }
 
   return peaks;
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("Failed to read asset."));
-    };
-    reader.onerror = () => {
-      reject(reader.error ?? new Error("Failed to read asset."));
-    };
-    reader.readAsDataURL(file);
-  });
 }
 
 async function inspectModelFile(

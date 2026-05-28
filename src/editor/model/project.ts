@@ -111,7 +111,7 @@ export type PrimitiveModelContent = ModelMaterialContent & {
 export type ImportedModelContent = ModelMaterialContent & {
   kind: "asset";
   assetId: string;
-  src: string;
+  src?: string;
   format: ModelAssetFormat;
   width: number;
   height: number;
@@ -126,7 +126,7 @@ export type ModelContent = PrimitiveModelContent | ImportedModelContent;
 
 export type ImageContent = {
   assetId: string;
-  src: string;
+  src?: string;
   width: number;
   height: number;
 };
@@ -176,7 +176,9 @@ export type Asset = {
   id: string;
   name: string;
   type: "audio" | "image" | "model";
-  src: string;
+  src?: string;
+  fileName?: string;
+  mimeType?: string;
   waveform?: number[];
   width?: number;
   height?: number;
@@ -236,5 +238,15 @@ export function isImportedModelContent(
     return false;
   }
 
-  return "assetId" in content && "src" in content && "format" in content;
+  return "assetId" in content && "format" in content;
+}
+
+export function isImageContent(content: SceneObject["content"]): content is ImageContent {
+  if (!content) {
+    return false;
+  }
+
+  return (
+    "assetId" in content && "width" in content && "height" in content && !("format" in content)
+  );
 }

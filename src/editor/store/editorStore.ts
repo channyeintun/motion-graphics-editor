@@ -45,13 +45,29 @@ type EditorState = {
   addShapeLayer: (shape?: "rectangle" | "circle" | "triangle" | "star" | "polygon") => void;
   add3DModelLayer: (shape: PrimitiveModelShape) => void;
   addImportedModelLayer: (
+    assetId: string,
     name: string,
-    src: string,
     format: ModelAssetFormat,
     metadata: Pick<ImportedModelContent, "width" | "height" | "depth" | "animationNames">,
+    fileName: string,
+    mimeType: string,
   ) => void;
-  addImageLayer: (name: string, src: string, width: number, height: number) => void;
-  addAudioLayer: (name: string, src: string, waveform: number[], duration: number) => void;
+  addImageLayer: (
+    assetId: string,
+    name: string,
+    width: number,
+    height: number,
+    fileName: string,
+    mimeType: string,
+  ) => void;
+  addAudioLayer: (
+    assetId: string,
+    name: string,
+    waveform: number[],
+    duration: number,
+    fileName: string,
+    mimeType: string,
+  ) => void;
   renameLayer: (layerId: string, name: string) => void;
   deleteLayer: (layerId: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
@@ -370,6 +386,7 @@ function normalizeProject(project: Project): Project {
 
   return {
     ...project,
+    version: Math.max(project.version ?? 0, 3),
     background: scenes[0]?.background.color ?? project.background,
     scenes,
     layers,
@@ -770,14 +787,12 @@ export const useEditorStore = create<EditorState>((set) => {
         };
       });
     },
-    addImportedModelLayer: (name, src, format, metadata) => {
+    addImportedModelLayer: (assetId, name, format, metadata, fileName, mimeType) => {
       set((state) => {
-        const assetId = `model-${crypto.randomUUID()}`;
         const layerId = `model-layer-${crypto.randomUUID()}`;
         const content: ImportedModelContent = {
           kind: "asset",
           assetId,
-          src,
           format,
           width: metadata.width,
           height: metadata.height,
@@ -801,7 +816,8 @@ export const useEditorStore = create<EditorState>((set) => {
                 id: assetId,
                 name,
                 type: "model",
-                src,
+                fileName,
+                mimeType,
                 format,
                 width: metadata.width,
                 height: metadata.height,
@@ -845,9 +861,8 @@ export const useEditorStore = create<EditorState>((set) => {
         };
       });
     },
-    addImageLayer: (name, src, width, height) => {
+    addImageLayer: (assetId, name, width, height, fileName, mimeType) => {
       set((state) => {
-        const assetId = `image-${crypto.randomUUID()}`;
         const layerId = `image-layer-${crypto.randomUUID()}`;
 
         return {
@@ -858,7 +873,8 @@ export const useEditorStore = create<EditorState>((set) => {
                 id: assetId,
                 name,
                 type: "image",
-                src,
+                fileName,
+                mimeType,
                 width,
                 height,
               },
@@ -878,7 +894,6 @@ export const useEditorStore = create<EditorState>((set) => {
                   style: { color: "#ffffff" },
                   content: {
                     assetId,
-                    src,
                     width,
                     height,
                   },
@@ -904,9 +919,8 @@ export const useEditorStore = create<EditorState>((set) => {
         };
       });
     },
-    addAudioLayer: (name, src, waveform, duration) => {
+    addAudioLayer: (assetId, name, waveform, duration, fileName, mimeType) => {
       set((state) => {
-        const assetId = `audio-${crypto.randomUUID()}`;
         const layerId = `audio-layer-${crypto.randomUUID()}`;
         const clipDuration =
           Number.isFinite(duration) && duration > 0 ? Math.max(duration, minClipDuration) : 1;
@@ -929,7 +943,8 @@ export const useEditorStore = create<EditorState>((set) => {
                 id: assetId,
                 name,
                 type: "audio",
-                src,
+                fileName,
+                mimeType,
                 waveform,
               },
               ...state.project.assets,

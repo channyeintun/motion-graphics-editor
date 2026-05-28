@@ -650,6 +650,12 @@ type PreviewContentProps = {
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
 };
 
+type PreviewObjectWithSource = PreviewObject & { src: string };
+
+type PreviewTexturedContentProps = Omit<PreviewContentProps, "object"> & {
+  object: PreviewObjectWithSource;
+};
+
 function PreviewNode({
   object,
   selected,
@@ -833,7 +839,41 @@ function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewConte
 }
 
 function PreviewImage({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
-  const texture = useTexture(object.src ?? "");
+  if (!object.src) {
+    return (
+      <mesh onPointerDown={onPointerDown}>
+        <planeGeometry args={[object.width ?? 2.4, object.height ?? 1.35]} />
+        <meshBasicMaterial
+          color="#94a3b8"
+          transparent
+          opacity={Math.max(0.14, object.opacity * opacityMultiplier * 0.22)}
+          wireframe
+          toneMapped={false}
+        />
+      </mesh>
+    );
+  }
+
+  const objectWithSource: PreviewObjectWithSource = {
+    ...object,
+    src: object.src,
+  };
+
+  return (
+    <PreviewImageWithTexture
+      object={objectWithSource}
+      opacityMultiplier={opacityMultiplier}
+      onPointerDown={onPointerDown}
+    />
+  );
+}
+
+function PreviewImageWithTexture({
+  object,
+  opacityMultiplier,
+  onPointerDown,
+}: PreviewTexturedContentProps) {
+  const texture = useTexture(object.src);
 
   return (
     <mesh onPointerDown={onPointerDown}>
@@ -859,13 +899,24 @@ function PreviewModel({
   animationTime,
   onPointerDown,
 }: PreviewModelProps) {
-  if (object.src) {
+  const isImportedAssetModel = Boolean(object.assetId) || Boolean(object.modelFormat);
+
+  if (isImportedAssetModel) {
+    if (!object.src) {
+      return <PreviewModelFallback object={object} opacityMultiplier={opacityMultiplier} />;
+    }
+
+    const objectWithSource: PreviewObjectWithSource = {
+      ...object,
+      src: object.src,
+    };
+
     return (
       <Suspense
         fallback={<PreviewModelFallback object={object} opacityMultiplier={opacityMultiplier} />}
       >
         <PreviewImportedModel
-          object={object}
+          object={objectWithSource}
           opacityMultiplier={opacityMultiplier}
           animationTime={animationTime}
           onPointerDown={onPointerDown}
@@ -976,8 +1027,8 @@ function PreviewImportedModel({
   opacityMultiplier,
   animationTime,
   onPointerDown,
-}: PreviewModelProps) {
-  const gltf = useGLTF(object.src ?? "") as unknown as GLTF;
+}: Omit<PreviewModelProps, "object"> & { object: PreviewObjectWithSource }) {
+  const gltf = useGLTF(object.src) as unknown as GLTF;
   const normalizedModel = useMemo(() => cloneAndNormalizeImportedScene(gltf.scene), [gltf.scene]);
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const animationClip = useMemo(
@@ -1280,7 +1331,7 @@ function getObjectBounds(object: PreviewObject) {
   }
 
   if (object.type === "model") {
-    if (object.src) {
+    if (object.assetId || object.modelFormat || object.src) {
       return {
         width: (object.width ?? 2.6) + 0.2,
         height: (object.height ?? 2.6) + 0.2,
