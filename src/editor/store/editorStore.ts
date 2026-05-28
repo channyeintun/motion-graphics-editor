@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import { sampleLayer } from "../engine/animationSampler";
 import { createDefaultProject } from "../model/defaultProject";
-import type { AnimatableProperty, Clip, Layer, Project } from "../model/project";
+import type {
+  AnimatableProperty,
+  Clip,
+  Layer,
+  Project,
+  ShapeContent,
+  ModelContent,
+} from "../model/project";
 import { clampClipEdge, clampClipMove, minClipDuration } from "../timeline/timelineMath";
 
 export const STORAGE_KEY = "motion-graphics-editor.project";
@@ -14,12 +21,17 @@ type EditorState = {
   currentTime: number;
   isPlaying: boolean;
   loopPlayback: boolean;
+  interactionMode: "select" | "pan" | "orbit";
+  transformMode: "translate" | "rotate" | "scale";
   selectLayer: (layerId: string | null, additive?: boolean) => void;
   selectClip: (clipId: string | null) => void;
   selectKeyframe: (keyframeId: string | null) => void;
   replaceProject: (project: Project) => void;
   addTextLayer: () => void;
-  addShapeLayer: (shape?: "rectangle" | "circle") => void;
+  addShapeLayer: (shape?: "rectangle" | "circle" | "triangle" | "star" | "polygon") => void;
+  add3DModelLayer: (shape: "cube" | "sphere" | "cylinder" | "cone" | "torus") => void;
+  setInteractionMode: (mode: "select" | "pan" | "orbit") => void;
+  setTransformMode: (mode: "translate" | "rotate" | "scale") => void;
   addImageLayer: (name: string, src: string, width: number, height: number) => void;
   addAudioLayer: (name: string, src: string, waveform: number[], duration: number) => void;
   renameLayer: (layerId: string, name: string) => void;
@@ -207,6 +219,14 @@ export const useEditorStore = create<EditorState>((set) => ({
   currentTime: 0,
   isPlaying: false,
   loopPlayback: true,
+  interactionMode: "select",
+  transformMode: "translate",
+  setInteractionMode: (interactionMode) => {
+    set({ interactionMode });
+  },
+  setTransformMode: (transformMode) => {
+    set({ transformMode });
+  },
   selectLayer: (layerId, additive = false) => {
     set((state) => {
       if (!layerId) {
@@ -283,13 +303,32 @@ export const useEditorStore = create<EditorState>((set) => ({
   addShapeLayer: (shape = "rectangle") => {
     set((state) => {
       const layerId = `shape-${crypto.randomUUID()}`;
+      const name = `${shape.charAt(0).toUpperCase() + shape.slice(1)} ${state.project.layers.length + 1}`;
+
+      let color = "#f97316";
+      let content: ShapeContent = { shape: "rectangle", width: 2.2, height: 0.8 };
+
+      if (shape === "circle") {
+        color = "#06b6d4";
+        content = { shape: "circle", radius: 0.58 };
+      } else if (shape === "triangle") {
+        color = "#ec4899";
+        content = { shape: "triangle", width: 1.6, height: 1.6 };
+      } else if (shape === "star") {
+        color = "#eab308";
+        content = { shape: "star", points: 5, radius: 0.9, innerRadius: 0.38 };
+      } else if (shape === "polygon") {
+        color = "#a855f7";
+        content = { shape: "polygon", sides: 6, radius: 0.8 };
+      }
+
       return {
         project: {
           ...state.project,
           layers: [
             {
               id: layerId,
-              name: `Shape ${state.project.layers.length + 1}`,
+              name,
               type: "shape",
               visible: true,
               locked: false,
@@ -297,17 +336,77 @@ export const useEditorStore = create<EditorState>((set) => ({
                 id: `${layerId}-object`,
                 transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
                 opacity: 1,
-                style: { color: shape === "circle" ? "#06b6d4" : "#f97316" },
-                content:
-                  shape === "circle"
-                    ? { shape: "circle", radius: 0.58 }
-                    : { shape: "rectangle", width: 2.2, height: 0.8 },
+                style: { color },
+                content,
               },
               clips: [
                 {
                   id: `${layerId}-clip`,
                   layerId,
-                  name: shape === "circle" ? "Circle Clip" : "Rectangle Clip",
+                  name: `${shape.charAt(0).toUpperCase() + shape.slice(1)} Clip`,
+                  start: 0,
+                  end: state.project.duration,
+                  enabled: true,
+                  keyframes: [],
+                },
+              ],
+            },
+            ...state.project.layers,
+          ],
+        },
+        selectedLayerIds: [layerId],
+      };
+    });
+  },
+  add3DModelLayer: (shape) => {
+    set((state) => {
+      const layerId = `model-${crypto.randomUUID()}`;
+      const name = `${shape.charAt(0).toUpperCase() + shape.slice(1)} 3D ${state.project.layers.length + 1}`;
+
+      const color =
+        shape === "cube"
+          ? "#ef4444"
+          : shape === "sphere"
+            ? "#3b82f6"
+            : shape === "cylinder"
+              ? "#10b981"
+              : shape === "cone"
+                ? "#f59e0b"
+                : "#6366f1";
+
+      const content: ModelContent =
+        shape === "cube"
+          ? { shape, width: 1.3, height: 1.3, depth: 1.3 }
+          : shape === "sphere"
+            ? { shape, radius: 0.8, radialSegments: 32 }
+            : shape === "cylinder"
+              ? { shape, radius: 0.6, height: 1.4, radialSegments: 32 }
+              : shape === "cone"
+                ? { shape, radius: 0.7, height: 1.4, radialSegments: 32 }
+                : { shape, radius: 0.7, tubularRadius: 0.22, radialSegments: 32 };
+
+      return {
+        project: {
+          ...state.project,
+          layers: [
+            {
+              id: layerId,
+              name,
+              type: "model",
+              visible: true,
+              locked: false,
+              object: {
+                id: `${layerId}-object`,
+                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                opacity: 1,
+                style: { color },
+                content,
+              },
+              clips: [
+                {
+                  id: `${layerId}-clip`,
+                  layerId,
+                  name: `${shape.charAt(0).toUpperCase() + shape.slice(1)} 3D Clip`,
                   start: 0,
                   end: state.project.duration,
                   enabled: true,

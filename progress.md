@@ -8,10 +8,10 @@ This document tracks our progress during the execution of the implementation pla
   - [x] Add 3D Mesh types and properties to `project.ts`.
   - [x] Expand 2D Shape types and attributes in `project.ts`.
   - [x] Update `PreviewObject` definitions and conversion mapping in `preview.ts`.
-- [ ] **Task 2: Implement Store States & Actions**
-  - [ ] Add `add3DModelLayer` action to `editorStore.ts`.
-  - [ ] Extend `addShapeLayer` action for premium 2D shapes in `editorStore.ts`.
-  - [ ] Integrate viewport interaction and transform mode fields (`interactionMode`, `transformMode`) into Zustand state.
+- [x] **Task 2: Implement Store States & Actions**
+  - [x] Add `add3DModelLayer` action to `editorStore.ts`.
+  - [x] Extend `addShapeLayer` action for premium 2D shapes in `editorStore.ts`.
+  - [x] Integrate viewport interaction and transform mode fields (`interactionMode`, `transformMode`) into Zustand state.
 - [ ] **Task 3: Expand Viewport Engine Rendering & Camera Orbit**
   - [ ] Implement R3F meshes for 3D primitives (Box, Sphere, Cylinder, Cone, Torus).
   - [ ] Implement new 2D shapes (Triangle, Star, Polygon) in the previewer.
