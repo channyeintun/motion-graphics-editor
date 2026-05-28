@@ -25,12 +25,31 @@ export type SceneBackground = {
   animation: BackgroundAnimationPreset;
 };
 
+export type SceneCameraVector = {
+  x: number;
+  y: number;
+  z: number;
+};
+
+export type SceneCamera = {
+  position: SceneCameraVector;
+  lookAt: SceneCameraVector;
+  up: SceneCameraVector;
+};
+
+export type SceneCameraPatch = {
+  position?: Partial<SceneCameraVector>;
+  lookAt?: Partial<SceneCameraVector>;
+  up?: Partial<SceneCameraVector>;
+};
+
 export type Scene = {
   id: string;
   name: string;
   start: number;
   end: number;
   background: SceneBackground;
+  camera: SceneCamera;
   transitionToNext: SceneTransition;
 };
 
@@ -135,8 +154,44 @@ export type AudioContent = {
   assetId: string;
 };
 
+export type LayerEffectStroke = {
+  enabled: boolean;
+  color: string;
+  size: number;
+  opacity: number;
+};
+
+export type LayerEffectDropShadow = {
+  enabled: boolean;
+  color: string;
+  opacity: number;
+  offsetX: number;
+  offsetY: number;
+  blur: number;
+};
+
+export type LayerEffectOuterGlow = {
+  enabled: boolean;
+  color: string;
+  opacity: number;
+  size: number;
+};
+
+export type LayerEffects = {
+  stroke: LayerEffectStroke;
+  dropShadow: LayerEffectDropShadow;
+  outerGlow: LayerEffectOuterGlow;
+};
+
+export type LayerEffectsPatch = {
+  stroke?: Partial<LayerEffectStroke>;
+  dropShadow?: Partial<LayerEffectDropShadow>;
+  outerGlow?: Partial<LayerEffectOuterGlow>;
+};
+
 export type ObjectStyle = {
   color: string;
+  effects: LayerEffects;
 };
 
 export type SceneObject = {
@@ -216,6 +271,50 @@ export type Project = {
   assets: Asset[];
   timeline: Timeline;
 };
+
+export function createDefaultLayerEffects(): LayerEffects {
+  return {
+    stroke: {
+      enabled: false,
+      color: "#ffffff",
+      size: 0.06,
+      opacity: 0.45,
+    },
+    dropShadow: {
+      enabled: false,
+      color: "#0f172a",
+      opacity: 0.24,
+      offsetX: 0.16,
+      offsetY: -0.16,
+      blur: 0.18,
+    },
+    outerGlow: {
+      enabled: false,
+      color: "#ffffff",
+      opacity: 0.18,
+      size: 0.16,
+    },
+  };
+}
+
+export function createSceneCameraVector(x = 0, y = 0, z = 10.5): SceneCameraVector {
+  return { x, y, z };
+}
+
+export function createDefaultSceneCamera(): SceneCamera {
+  return {
+    position: createSceneCameraVector(0, 0, 10.5),
+    lookAt: createSceneCameraVector(0, 0, 0),
+    up: createSceneCameraVector(0, 1, 0),
+  };
+}
+
+export function createDefaultObjectStyle(color = "#ffffff"): ObjectStyle {
+  return {
+    color,
+    effects: createDefaultLayerEffects(),
+  };
+}
 
 export function isPrimitiveModelShape(value: unknown): value is PrimitiveModelShape {
   return primitiveModelShapes.some((shape) => shape === value);

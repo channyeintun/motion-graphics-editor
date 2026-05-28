@@ -146,7 +146,7 @@ export function TimelinePanel({
   ]);
 
   return (
-    <div className="overflow-hidden rounded-[26px] border border-white/8 bg-[#090b10]">
+    <div className="overflow-hidden border border-white/8 bg-[#090b10]">
       <div className="grid grid-cols-[220px_minmax(0,1fr)] border-b border-white/8 text-xs text-slate-500">
         <div className="border-r border-white/8 px-4 py-3 uppercase tracking-[0.32em]">Layers</div>
         <div className="px-4 py-3 uppercase tracking-[0.32em]">Timeline</div>
@@ -199,7 +199,7 @@ export function TimelinePanel({
               key={layer.id}
               type="button"
               onClick={(event) => onSelectLayer(layer.id, event.shiftKey)}
-              className={`flex h-[64px] w-full items-center justify-between border-b border-white/6 px-4 text-left transition hover:bg-white/4 ${selectedLayerIds.includes(layer.id) ? "bg-white/6" : ""} ${!layer.visible ? "opacity-50" : ""}`}
+              className={`flex h-16 w-full items-center justify-between border-b border-white/6 px-4 text-left transition hover:bg-white/4 ${selectedLayerIds.includes(layer.id) ? "bg-white/6" : ""} ${!layer.visible ? "opacity-50" : ""}`}
             >
               <div>
                 <p className="text-sm font-medium text-white">{layer.name}</p>
@@ -237,7 +237,7 @@ export function TimelinePanel({
               ))}
             </button>
 
-            <div className="relative h-12 border-b border-white/6 bg-[linear-gradient(180deg,_rgba(255,255,255,0.02),_transparent)]">
+            <div className="relative h-12 border-b border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)]">
               {ticks.map((tick) => (
                 <div
                   key={`scene-${tick}`}
@@ -302,13 +302,13 @@ export function TimelinePanel({
               className="pointer-events-none absolute top-0 z-20 h-full w-px bg-violet-300"
               style={{ left: currentTime * zoom }}
             >
-              <div className="-ml-[6px] h-3 w-3 rounded-full border border-violet-100 bg-violet-300" />
+              <div className="-ml-1.5 h-3 w-3 rounded-full border border-violet-100 bg-violet-300" />
             </div>
 
             {layers.map((layer) => (
               <div
                 key={layer.id}
-                className="relative h-[64px] border-b border-white/6 bg-[linear-gradient(180deg,_rgba(255,255,255,0.015),_transparent)]"
+                className="relative h-16 border-b border-white/6 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent)]"
               >
                 {ticks.map((tick) => (
                   <div
@@ -365,7 +365,7 @@ export function TimelinePanel({
                       </span>
 
                       {audioAsset?.waveform ? (
-                        <span className="absolute inset-x-3 bottom-1 flex h-3 items-center gap-[2px] overflow-hidden">
+                        <span className="absolute inset-x-3 bottom-1 flex h-3 items-center gap-0.5 overflow-hidden">
                           {audioAsset.waveform.slice(0, 48).map((value, index) => (
                             <span
                               key={`${audioAsset.id}-${index}`}

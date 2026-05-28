@@ -185,7 +185,7 @@ export function PreviewViewport({
 
   return (
     <div className="relative flex h-full min-h-[66vh] items-center justify-center p-3 pt-14 md:p-4 md:pt-16 lg:p-5 lg:pt-18">
-      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[38px] border-[12px] border-black bg-[#f3efe3] shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
+      <div className="relative aspect-video w-full overflow-hidden rounded-[38px] border-12 border-black bg-[#f3efe3] shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
         <SceneBackdrops sceneState={sceneState} />
         <div className="absolute inset-0 rounded-[26px] border border-black/10" />
         <Canvas
@@ -201,7 +201,7 @@ export function PreviewViewport({
           onPointerUp={stopDragging}
           onPointerLeave={stopDragging}
         >
-          <ResponsiveCamera />
+          <ResponsiveCamera sceneState={sceneState} />
           <ambientLight intensity={1.4} />
           <directionalLight position={[2, 4, 10]} intensity={0.65} />
 
@@ -324,22 +324,46 @@ export function PreviewViewport({
   );
 }
 
-function ResponsiveCamera() {
+function ResponsiveCamera({ sceneState }: { sceneState: SampledSceneState }) {
   const camera = useThree((state) => state.camera as THREE.PerspectiveCamera);
   const size = useThree((state) => state.size);
+  const interactionMode = useSelector(viewportStore, (state) => state.context.interactionMode);
 
   useLayoutEffect(() => {
     camera.aspect = size.width / size.height;
-
-    const verticalFov = THREE.MathUtils.degToRad(camera.fov);
-    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
-    const fitHeightDistance = FRAME_HEIGHT / 2 / Math.tan(verticalFov / 2);
-    const fitWidthDistance = FRAME_WIDTH / 2 / Math.tan(horizontalFov / 2);
-
-    camera.position.set(0, 0, Math.max(fitHeightDistance, fitWidthDistance) + 1.5);
-    camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
-  }, [camera, size.height, size.width]);
+
+    if (interactionMode === "orbit") {
+      return;
+    }
+
+    camera.position.set(
+      sceneState.camera.position.x,
+      sceneState.camera.position.y,
+      sceneState.camera.position.z,
+    );
+    camera.up.set(sceneState.camera.up.x, sceneState.camera.up.y, sceneState.camera.up.z);
+    camera.lookAt(
+      sceneState.camera.lookAt.x,
+      sceneState.camera.lookAt.y,
+      sceneState.camera.lookAt.z,
+    );
+    camera.updateMatrixWorld();
+  }, [
+    camera,
+    interactionMode,
+    sceneState.camera.lookAt.x,
+    sceneState.camera.lookAt.y,
+    sceneState.camera.lookAt.z,
+    sceneState.camera.position.x,
+    sceneState.camera.position.y,
+    sceneState.camera.position.z,
+    sceneState.camera.up.x,
+    sceneState.camera.up.y,
+    sceneState.camera.up.z,
+    size.height,
+    size.width,
+  ]);
 
   return null;
 }
@@ -589,6 +613,15 @@ type PreviewTexturedContentProps = Omit<PreviewContentProps, "object"> & {
   object: PreviewObjectWithSource;
 };
 
+type PreviewShapeSurfaceProps = {
+  object: PreviewObject;
+  color: string;
+  opacity: number;
+  useBasicMaterial?: boolean;
+  blending?: THREE.Blending;
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
+};
+
 function PreviewNode({
   object,
   selected,
@@ -675,31 +708,137 @@ function PreviewNode({
 }
 
 function PreviewText({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
+  const stroke = object.effects.stroke;
+  const dropShadow = object.effects.dropShadow;
+  const outerGlow = object.effects.outerGlow;
+  const contentOpacity = object.opacity * opacityMultiplier;
+
   return (
-    <Text
-      position={[0, 0, 0.3]}
-      fontSize={object.fontSize ?? 0.9}
-      fontWeight={object.fontWeight ?? 400}
-      letterSpacing={object.letterSpacing ?? 0}
-      color={object.color}
-      anchorX="center"
-      anchorY="middle"
-      fillOpacity={object.opacity * opacityMultiplier}
-      outlineBlur={0.008}
-      outlineWidth={0.012}
-      outlineColor="rgba(255,255,255,0.4)"
-      onPointerDown={onPointerDown}
-    >
-      {object.text}
-    </Text>
+    <group>
+      {dropShadow.enabled ? (
+        <Text
+          position={[dropShadow.offsetX, dropShadow.offsetY, 0.08]}
+          fontSize={object.fontSize ?? 0.9}
+          fontWeight={object.fontWeight ?? 400}
+          letterSpacing={object.letterSpacing ?? 0}
+          color={dropShadow.color}
+          anchorX="center"
+          anchorY="middle"
+          fillOpacity={contentOpacity * dropShadow.opacity}
+          outlineBlur={Math.max(0.01, dropShadow.blur * 0.35)}
+          outlineWidth={Math.max(0.008, dropShadow.blur * 0.2)}
+          outlineColor={toRgba(dropShadow.color, Math.min(1, dropShadow.opacity * 0.92))}
+        >
+          {object.text}
+        </Text>
+      ) : null}
+
+      {outerGlow.enabled ? (
+        <Text
+          position={[0, 0, 0.18]}
+          fontSize={object.fontSize ?? 0.9}
+          fontWeight={object.fontWeight ?? 400}
+          letterSpacing={object.letterSpacing ?? 0}
+          color={outerGlow.color}
+          anchorX="center"
+          anchorY="middle"
+          fillOpacity={0}
+          outlineBlur={Math.max(0.015, outerGlow.size)}
+          outlineWidth={Math.max(0.01, outerGlow.size * 0.55)}
+          outlineColor={toRgba(outerGlow.color, outerGlow.opacity)}
+        >
+          {object.text}
+        </Text>
+      ) : null}
+
+      <Text
+        position={[0, 0, 0.3]}
+        fontSize={object.fontSize ?? 0.9}
+        fontWeight={object.fontWeight ?? 400}
+        letterSpacing={object.letterSpacing ?? 0}
+        color={object.color}
+        anchorX="center"
+        anchorY="middle"
+        fillOpacity={contentOpacity}
+        outlineBlur={stroke.enabled ? Math.max(0.004, stroke.size * 0.45) : 0}
+        outlineWidth={stroke.enabled ? stroke.size : 0}
+        outlineColor={stroke.enabled ? toRgba(stroke.color, stroke.opacity) : "rgba(0,0,0,0)"}
+        onPointerDown={onPointerDown}
+      >
+        {object.text}
+      </Text>
+    </group>
   );
 }
 
 function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
+  const stroke = object.effects.stroke;
+  const dropShadow = object.effects.dropShadow;
+  const outerGlow = object.effects.outerGlow;
+
+  return (
+    <group>
+      {dropShadow.enabled ? (
+        <group
+          position={[dropShadow.offsetX, dropShadow.offsetY, -0.12]}
+          scale={getEffectScale(object, dropShadow.blur)}
+        >
+          <PreviewShapeSurface
+            object={object}
+            color={dropShadow.color}
+            opacity={object.opacity * dropShadow.opacity * opacityMultiplier}
+            useBasicMaterial
+          />
+        </group>
+      ) : null}
+
+      {outerGlow.enabled ? (
+        <group position={[0, 0, -0.08]} scale={getEffectScale(object, outerGlow.size)}>
+          <PreviewShapeSurface
+            object={object}
+            color={outerGlow.color}
+            opacity={object.opacity * outerGlow.opacity * opacityMultiplier}
+            useBasicMaterial
+            blending={THREE.AdditiveBlending}
+          />
+        </group>
+      ) : null}
+
+      {stroke.enabled ? (
+        <group position={[0, 0, -0.04]} scale={getEffectScale(object, stroke.size)}>
+          <PreviewShapeSurface
+            object={object}
+            color={stroke.color}
+            opacity={object.opacity * stroke.opacity * opacityMultiplier}
+            useBasicMaterial
+          />
+        </group>
+      ) : null}
+
+      <PreviewShapeSurface
+        object={object}
+        color={object.color}
+        opacity={object.opacity * opacityMultiplier}
+        onPointerDown={onPointerDown}
+      />
+    </group>
+  );
+}
+
+function PreviewShapeSurface({
+  object,
+  color,
+  opacity,
+  useBasicMaterial = false,
+  blending,
+  onPointerDown,
+}: PreviewShapeSurfaceProps) {
   const materialProps = {
-    color: object.color,
+    color,
     transparent: true,
-    opacity: object.opacity * opacityMultiplier,
+    opacity,
+    toneMapped: false,
+    blending,
   };
 
   const starShape = useMemo(() => {
@@ -731,7 +870,11 @@ function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewConte
     return (
       <mesh onPointerDown={onPointerDown}>
         <circleGeometry args={[object.radius ?? 0.58, 64]} />
-        <meshStandardMaterial {...materialProps} />
+        {useBasicMaterial ? (
+          <meshBasicMaterial {...materialProps} />
+        ) : (
+          <meshStandardMaterial {...materialProps} />
+        )}
       </mesh>
     );
   }
@@ -740,7 +883,11 @@ function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewConte
     return (
       <mesh onPointerDown={onPointerDown}>
         <circleGeometry args={[object.radius ?? 0.8, 3]} />
-        <meshStandardMaterial {...materialProps} />
+        {useBasicMaterial ? (
+          <meshBasicMaterial {...materialProps} />
+        ) : (
+          <meshStandardMaterial {...materialProps} />
+        )}
       </mesh>
     );
   }
@@ -749,7 +896,11 @@ function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewConte
     return (
       <mesh onPointerDown={onPointerDown}>
         <circleGeometry args={[object.radius ?? 0.8, object.sides ?? 6]} />
-        <meshStandardMaterial {...materialProps} />
+        {useBasicMaterial ? (
+          <meshBasicMaterial {...materialProps} />
+        ) : (
+          <meshStandardMaterial {...materialProps} />
+        )}
       </mesh>
     );
   }
@@ -758,7 +909,11 @@ function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewConte
     return (
       <mesh onPointerDown={onPointerDown}>
         <shapeGeometry args={[starShape]} />
-        <meshStandardMaterial {...materialProps} />
+        {useBasicMaterial ? (
+          <meshBasicMaterial {...materialProps} />
+        ) : (
+          <meshStandardMaterial {...materialProps} />
+        )}
       </mesh>
     );
   }
@@ -766,7 +921,11 @@ function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewConte
   return (
     <mesh onPointerDown={onPointerDown}>
       <planeGeometry args={[object.width ?? 2.2, object.height ?? 0.8]} />
-      <meshStandardMaterial {...materialProps} />
+      {useBasicMaterial ? (
+        <meshBasicMaterial {...materialProps} />
+      ) : (
+        <meshStandardMaterial {...materialProps} />
+      )}
     </mesh>
   );
 }
@@ -1076,6 +1235,30 @@ function cloneAndNormalizeImportedScene(scene: THREE.Group) {
     scene: sceneClone,
     scale: 2.6 / longestSide,
   };
+}
+
+function getEffectScale(object: PreviewObject, size: number): [number, number, number] {
+  const bounds = getObjectBounds(object);
+  const widthScale = 1 + size / Math.max(bounds.width, 0.001);
+  const heightScale = 1 + size / Math.max(bounds.height, 0.001);
+
+  return [widthScale, heightScale, 1];
+}
+
+function toRgba(hexColor: string, opacity: number) {
+  const normalized = hexColor.replace("#", "");
+  const full =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((segment) => `${segment}${segment}`)
+          .join("")
+      : normalized.padEnd(6, "0");
+  const red = Number.parseInt(full.slice(0, 2), 16);
+  const green = Number.parseInt(full.slice(2, 4), 16);
+  const blue = Number.parseInt(full.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, opacity)).toFixed(3)})`;
 }
 
 function applyImportedModelMaterial(

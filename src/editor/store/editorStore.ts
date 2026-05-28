@@ -8,6 +8,8 @@ import type {
   ClipTransition,
   Easing,
   ImportedModelContent,
+  SceneCameraPatch,
+  LayerEffectsPatch,
   Layer,
   ModelAnimationPlayback,
   ModelAssetFormat,
@@ -22,7 +24,12 @@ import type {
   PrimitiveModelShape,
   Transform,
 } from "../model/project";
-import { isImportedModelContent, isPrimitiveModelContent } from "../model/project";
+import {
+  createDefaultObjectStyle,
+  createDefaultSceneCamera,
+  isImportedModelContent,
+  isPrimitiveModelContent,
+} from "../model/project";
 import { clampClipEdge, clampClipMove, minClipDuration } from "../timeline/timelineMath";
 
 export const STORAGE_KEY = "motion-graphics-editor.project";
@@ -79,6 +86,7 @@ type EditorState = {
     patch: Partial<Pick<TextContent, "fontSize" | "fontWeight" | "letterSpacing">>,
   ) => void;
   updateLayerColor: (layerId: string, color: string) => void;
+  updateLayerEffects: (layerId: string, patch: LayerEffectsPatch) => void;
   updateModelMaterial: (
     layerId: string,
     patch: Partial<
@@ -121,6 +129,7 @@ type EditorState = {
   moveSceneBoundary: (sceneId: string, nextTime: number) => void;
   updateSceneName: (sceneId: string, name: string) => void;
   updateSceneBackground: (sceneId: string, patch: Partial<SceneBackground>) => void;
+  updateSceneCamera: (sceneId: string, patch: SceneCameraPatch) => void;
   updateSceneTransition: (sceneId: string, patch: Partial<SceneTransition>) => void;
   addKeyframe: (
     layerId: string,
@@ -229,6 +238,53 @@ function createDefaultSceneTransition(
   };
 }
 
+function normalizeSceneCamera(camera: Scene["camera"] | undefined) {
+  const baseCamera = createDefaultSceneCamera();
+
+  return {
+    ...baseCamera,
+    ...camera,
+    position: {
+      ...baseCamera.position,
+      ...camera?.position,
+    },
+    lookAt: {
+      ...baseCamera.lookAt,
+      ...camera?.lookAt,
+    },
+    up: {
+      ...baseCamera.up,
+      ...camera?.up,
+    },
+  };
+}
+
+function normalizeLayerStyle(style: Layer["object"]["style"] | undefined) {
+  const baseStyle = createDefaultObjectStyle(style?.color ?? "#ffffff");
+  const currentEffects = style?.effects;
+
+  return {
+    ...baseStyle,
+    ...style,
+    effects: {
+      ...baseStyle.effects,
+      ...currentEffects,
+      stroke: {
+        ...baseStyle.effects.stroke,
+        ...currentEffects?.stroke,
+      },
+      dropShadow: {
+        ...baseStyle.effects.dropShadow,
+        ...currentEffects?.dropShadow,
+      },
+      outerGlow: {
+        ...baseStyle.effects.outerGlow,
+        ...currentEffects?.outerGlow,
+      },
+    },
+  };
+}
+
 function createScene(
   id: string,
   name: string,
@@ -236,6 +292,7 @@ function createScene(
   end: number,
   background: SceneBackground,
   transitionToNext: SceneTransition,
+  camera = createDefaultSceneCamera(),
 ): Scene {
   return {
     id,
@@ -243,6 +300,7 @@ function createScene(
     start,
     end,
     background,
+    camera,
     transitionToNext,
   };
 }
@@ -335,6 +393,7 @@ function normalizeScenes(project: Project): Scene[] {
         ...createDefaultSceneBackground(project.background || "#f3efe3"),
         ...scene.background,
       },
+      camera: normalizeSceneCamera(scene.camera),
       transitionToNext: {
         ...createDefaultSceneTransition(),
         ...scene.transitionToNext,
@@ -366,6 +425,7 @@ function normalizeProject(project: Project): Project {
       ...layer,
       object: {
         ...layer.object,
+        style: normalizeLayerStyle(layer.object.style),
         transform: {
           ...createDefaultTransform(),
           ...layer.object.transform,
@@ -386,7 +446,7 @@ function normalizeProject(project: Project): Project {
 
   return {
     ...project,
-    version: Math.max(project.version ?? 0, 3),
+    version: Math.max(project.version ?? 0, 5),
     background: scenes[0]?.background.color ?? project.background,
     scenes,
     layers,
@@ -584,7 +644,7 @@ export const useEditorStore = create<EditorState>((set) => {
                   id: `${layerId}-object`,
                   transform: createDefaultTransform(),
                   opacity: 1,
-                  style: { color: "#18181b" },
+                  style: createDefaultObjectStyle("#18181b"),
                   content: {
                     value: "New Title",
                     fontSize: 0.85,
@@ -649,7 +709,7 @@ export const useEditorStore = create<EditorState>((set) => {
                   id: `${layerId}-object`,
                   transform: createDefaultTransform(),
                   opacity: 1,
-                  style: { color },
+                  style: createDefaultObjectStyle(color),
                   content,
                 },
                 clips: [
@@ -763,7 +823,7 @@ export const useEditorStore = create<EditorState>((set) => {
                   id: `${layerId}-object`,
                   transform: createDefaultTransform(),
                   opacity: 1,
-                  style: { color },
+                  style: createDefaultObjectStyle(color),
                   content,
                 },
                 clips: [
@@ -837,7 +897,7 @@ export const useEditorStore = create<EditorState>((set) => {
                   id: `${layerId}-object`,
                   transform: createDefaultTransform(),
                   opacity: 1,
-                  style: { color: "#ffffff" },
+                  style: createDefaultObjectStyle("#ffffff"),
                   content,
                 },
                 clips: [
@@ -891,7 +951,7 @@ export const useEditorStore = create<EditorState>((set) => {
                   id: `${layerId}-object`,
                   transform: createDefaultTransform(),
                   opacity: 1,
-                  style: { color: "#ffffff" },
+                  style: createDefaultObjectStyle("#ffffff"),
                   content: {
                     assetId,
                     width,
@@ -960,7 +1020,7 @@ export const useEditorStore = create<EditorState>((set) => {
                   id: `${layerId}-object`,
                   transform: createDefaultTransform(),
                   opacity: 1,
-                  style: { color: "#22c55e" },
+                  style: createDefaultObjectStyle("#22c55e"),
                   content: { assetId },
                 },
                 clips: [
@@ -1159,11 +1219,53 @@ export const useEditorStore = create<EditorState>((set) => {
                   ...layer,
                   object: {
                     ...layer.object,
-                    style: { color },
+                    style: {
+                      ...normalizeLayerStyle(layer.object.style),
+                      color,
+                    },
                   },
                 }
               : layer,
           ),
+        },
+      }));
+    },
+    updateLayerEffects: (layerId, patch) => {
+      set((state) => ({
+        project: {
+          ...state.project,
+          layers: state.project.layers.map((layer) => {
+            if (layer.id !== layerId || layer.locked) {
+              return layer;
+            }
+
+            const style = normalizeLayerStyle(layer.object.style);
+
+            return {
+              ...layer,
+              object: {
+                ...layer.object,
+                style: {
+                  ...style,
+                  effects: {
+                    ...style.effects,
+                    stroke: {
+                      ...style.effects.stroke,
+                      ...patch.stroke,
+                    },
+                    dropShadow: {
+                      ...style.effects.dropShadow,
+                      ...patch.dropShadow,
+                    },
+                    outerGlow: {
+                      ...style.effects.outerGlow,
+                      ...patch.outerGlow,
+                    },
+                  },
+                },
+              },
+            };
+          }),
         },
       }));
     },
@@ -1350,6 +1452,7 @@ export const useEditorStore = create<EditorState>((set) => {
           targetScene.end,
           { ...targetScene.background },
           { ...targetScene.transitionToNext },
+          normalizeSceneCamera(targetScene.camera),
         );
 
         const scenes = state.project.scenes.map((scene, index) =>
@@ -1518,6 +1621,39 @@ export const useEditorStore = create<EditorState>((set) => {
                 }
               : scene,
           ),
+        },
+      }));
+    },
+    updateSceneCamera: (sceneId, patch) => {
+      set((state) => ({
+        project: {
+          ...state.project,
+          scenes: state.project.scenes.map((scene) => {
+            if (scene.id !== sceneId) {
+              return scene;
+            }
+
+            const camera = normalizeSceneCamera(scene.camera);
+
+            return {
+              ...scene,
+              camera: {
+                ...camera,
+                position: {
+                  ...camera.position,
+                  ...patch.position,
+                },
+                lookAt: {
+                  ...camera.lookAt,
+                  ...patch.lookAt,
+                },
+                up: {
+                  ...camera.up,
+                  ...patch.up,
+                },
+              },
+            };
+          }),
         },
       }));
     },

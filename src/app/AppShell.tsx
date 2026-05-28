@@ -282,6 +282,7 @@ export function AppShell() {
   const updateTextLayer = useEditorStore((state) => state.updateTextLayer);
   const updateTextStyle = useEditorStore((state) => state.updateTextStyle);
   const updateLayerColor = useEditorStore((state) => state.updateLayerColor);
+  const updateLayerEffects = useEditorStore((state) => state.updateLayerEffects);
   const updateModelMaterial = useEditorStore((state) => state.updateModelMaterial);
   const updateTransformProperty = useEditorStore((state) => state.updateTransformProperty);
   const updateLayerOpacity = useEditorStore((state) => state.updateLayerOpacity);
@@ -311,6 +312,7 @@ export function AppShell() {
   const moveSceneBoundary = useEditorStore((state) => state.moveSceneBoundary);
   const updateSceneName = useEditorStore((state) => state.updateSceneName);
   const updateSceneBackground = useEditorStore((state) => state.updateSceneBackground);
+  const updateSceneCamera = useEditorStore((state) => state.updateSceneCamera);
   const updateSceneTransition = useEditorStore((state) => state.updateSceneTransition);
   const addKeyframe = useEditorStore((state) => state.addKeyframe);
   const moveKeyframe = useEditorStore((state) => state.moveKeyframe);
@@ -440,6 +442,7 @@ export function AppShell() {
 
     return selectedLayer.object.content;
   }, [selectedLayer]);
+  const selectedLayerEffects = selectedLayer?.object.style.effects ?? null;
   const selectionLocked = selectedLayer?.locked ?? false;
 
   playbackTimeRef.current = currentTime;
@@ -1160,7 +1163,7 @@ export function AppShell() {
   ]);
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(155deg,_#27282c_0%,_#1a1b1f_45%,_#0d0f14_100%)] text-slate-100">
+    <main className="min-h-screen bg-[linear-gradient(155deg,#27282c_0%,#1a1b1f_45%,#0d0f14_100%)] text-slate-100">
       <input
         ref={fileInputRef}
         type="file"
@@ -1190,13 +1193,13 @@ export function AppShell() {
         onChange={handleAudioImport}
       />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-2 p-2 md:p-3">
+      <div className="mx-auto flex min-h-screen w-full max-w-400 flex-col gap-2 p-2 md:p-3">
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(300px,32%)] md:items-stretch xl:grid-cols-[minmax(0,1fr)_minmax(340px,28%)]">
           {/* ─── Preview section ─────────────────────────────── */}
           <section className="relative min-h-[62vh] overflow-hidden rounded-[30px] border border-white/6 bg-[#0d0f14] shadow-[0_32px_100px_rgba(0,0,0,0.55)]">
             {/* Top-left compact toolbar */}
             <div className="absolute left-4 top-4 z-20">
-              <div className="flex items-center gap-0.5 rounded-[14px] border border-white/8 bg-black/70 p-[3px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+              <div className="flex items-center gap-0.5 rounded-[14px] border border-white/8 bg-black/70 p-0.75 shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-xl">
                 <button
                   id="toolbar-pan"
                   type="button"
@@ -1428,6 +1431,7 @@ export function AppShell() {
                       onDelete={deleteScene}
                       onMoveBoundary={moveSceneBoundary}
                       onUpdateBackground={updateSceneBackground}
+                      onUpdateCamera={updateSceneCamera}
                       onUpdateTransition={updateSceneTransition}
                     />
                   ) : null}
@@ -1897,6 +1901,260 @@ export function AppShell() {
                     </>
                   ) : null}
 
+                  {selectedLayerEffects &&
+                  (selectedLayer.type === "text" || selectedLayer.type === "shape") ? (
+                    <InspectorSection title="Layer Effects">
+                      <div className="space-y-3">
+                        <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-white">Stroke</p>
+                              <p className="text-xs text-slate-500">
+                                Outline the layer silhouette with a controllable edge.
+                              </p>
+                            </div>
+                            <label className="flex items-center gap-2 text-xs text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={selectedLayerEffects.stroke.enabled}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    stroke: { enabled: event.target.checked },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="accent-white disabled:cursor-not-allowed"
+                              />
+                              <span>Enabled</span>
+                            </label>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <MiniField label="Color">
+                              <input
+                                type="color"
+                                value={selectedLayerEffects.stroke.color}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    stroke: { color: event.target.value },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Opacity">
+                              <NumberInput
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value={selectedLayerEffects.stroke.opacity}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    stroke: { opacity: Math.max(0, Math.min(1, value)) },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Size" className="col-span-2">
+                              <NumberInput
+                                min="0"
+                                step="0.01"
+                                value={selectedLayerEffects.stroke.size}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    stroke: { size: Math.max(0, value) },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-white">Drop Shadow</p>
+                              <p className="text-xs text-slate-500">
+                                Offset the layer with a soft shadow pass behind it.
+                              </p>
+                            </div>
+                            <label className="flex items-center gap-2 text-xs text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={selectedLayerEffects.dropShadow.enabled}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    dropShadow: { enabled: event.target.checked },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="accent-white disabled:cursor-not-allowed"
+                              />
+                              <span>Enabled</span>
+                            </label>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <MiniField label="Color">
+                              <input
+                                type="color"
+                                value={selectedLayerEffects.dropShadow.color}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    dropShadow: { color: event.target.value },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Opacity">
+                              <NumberInput
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value={selectedLayerEffects.dropShadow.opacity}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    dropShadow: { opacity: Math.max(0, Math.min(1, value)) },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Offset X">
+                              <NumberInput
+                                step="0.01"
+                                value={selectedLayerEffects.dropShadow.offsetX}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    dropShadow: { offsetX: value },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Offset Y">
+                              <NumberInput
+                                step="0.01"
+                                value={selectedLayerEffects.dropShadow.offsetY}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    dropShadow: { offsetY: value },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Blur" className="col-span-2">
+                              <NumberInput
+                                min="0"
+                                step="0.01"
+                                value={selectedLayerEffects.dropShadow.blur}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    dropShadow: { blur: Math.max(0, value) },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-white">Outer Glow</p>
+                              <p className="text-xs text-slate-500">
+                                Add a soft halo around the outside of the layer.
+                              </p>
+                            </div>
+                            <label className="flex items-center gap-2 text-xs text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={selectedLayerEffects.outerGlow.enabled}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    outerGlow: { enabled: event.target.checked },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="accent-white disabled:cursor-not-allowed"
+                              />
+                              <span>Enabled</span>
+                            </label>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <MiniField label="Color">
+                              <input
+                                type="color"
+                                value={selectedLayerEffects.outerGlow.color}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    outerGlow: { color: event.target.value },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Opacity">
+                              <NumberInput
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value={selectedLayerEffects.outerGlow.opacity}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    outerGlow: { opacity: Math.max(0, Math.min(1, value)) },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Size" className="col-span-2">
+                              <NumberInput
+                                min="0"
+                                step="0.01"
+                                value={selectedLayerEffects.outerGlow.size}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateLayerEffects(selectedId, {
+                                    outerGlow: { size: Math.max(0, value) },
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                          </div>
+                        </div>
+                      </div>
+                    </InspectorSection>
+                  ) : null}
+
                   {selectedLayer.type !== "audio" ? (
                     <InspectorSection title="Clip">
                       {inspectorClip ? (
@@ -2096,10 +2354,11 @@ export function AppShell() {
                       onDelete={deleteScene}
                       onMoveBoundary={moveSceneBoundary}
                       onUpdateBackground={updateSceneBackground}
+                      onUpdateCamera={updateSceneCamera}
                       onUpdateTransition={updateSceneTransition}
                     />
                   ) : null}
-                  <div className="flex min-h-[16rem] flex-col items-center justify-center gap-3 rounded-2xl border border-white/8 bg-black/18 p-6 text-center">
+                  <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded-2xl border border-white/8 bg-black/18 p-6 text-center">
                     <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
                       Layer Inspector
                     </p>
@@ -2125,7 +2384,7 @@ export function AppShell() {
               type="button"
               onClick={() => setPlaying(!isPlaying)}
               title={isPlaying ? "Pause timeline" : "Play timeline"}
-              className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] border text-white transition ${
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border text-white transition ${
                 isPlaying
                   ? "border-[#8e99ff]/50 bg-[#6f7bf6]/25 text-[#b4bcff]"
                   : "border-white/10 bg-white/6 hover:bg-white/10"
@@ -2487,6 +2746,7 @@ function SceneInspectorSection({
   onDelete,
   onMoveBoundary,
   onUpdateBackground,
+  onUpdateCamera,
   onUpdateTransition,
 }: {
   scene: Scene;
@@ -2496,6 +2756,14 @@ function SceneInspectorSection({
   onDelete: (sceneId: string) => void;
   onMoveBoundary: (sceneId: string, nextTime: number) => void;
   onUpdateBackground: (sceneId: string, patch: Partial<Scene["background"]>) => void;
+  onUpdateCamera: (
+    sceneId: string,
+    patch: {
+      position?: Partial<Scene["camera"]["position"]>;
+      lookAt?: Partial<Scene["camera"]["lookAt"]>;
+      up?: Partial<Scene["camera"]["up"]>;
+    },
+  ) => void;
   onUpdateTransition: (sceneId: string, patch: Partial<Scene["transitionToNext"]>) => void;
 }) {
   return (
@@ -2598,6 +2866,72 @@ function SceneInspectorSection({
               </option>
             ))}
           </select>
+        </MiniField>
+        <MiniField label="Camera Position" className="col-span-2">
+          <div className="grid grid-cols-3 gap-3">
+            <NumberInput
+              step="0.05"
+              value={scene.camera.position.x}
+              onValueChange={(value) => onUpdateCamera(scene.id, { position: { x: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+            <NumberInput
+              step="0.05"
+              value={scene.camera.position.y}
+              onValueChange={(value) => onUpdateCamera(scene.id, { position: { y: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+            <NumberInput
+              step="0.05"
+              value={scene.camera.position.z}
+              onValueChange={(value) => onUpdateCamera(scene.id, { position: { z: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+          </div>
+        </MiniField>
+        <MiniField label="Camera Look At" className="col-span-2">
+          <div className="grid grid-cols-3 gap-3">
+            <NumberInput
+              step="0.05"
+              value={scene.camera.lookAt.x}
+              onValueChange={(value) => onUpdateCamera(scene.id, { lookAt: { x: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+            <NumberInput
+              step="0.05"
+              value={scene.camera.lookAt.y}
+              onValueChange={(value) => onUpdateCamera(scene.id, { lookAt: { y: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+            <NumberInput
+              step="0.05"
+              value={scene.camera.lookAt.z}
+              onValueChange={(value) => onUpdateCamera(scene.id, { lookAt: { z: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+          </div>
+        </MiniField>
+        <MiniField label="Camera Up Vector" className="col-span-2">
+          <div className="grid grid-cols-3 gap-3">
+            <NumberInput
+              step="0.05"
+              value={scene.camera.up.x}
+              onValueChange={(value) => onUpdateCamera(scene.id, { up: { x: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+            <NumberInput
+              step="0.05"
+              value={scene.camera.up.y}
+              onValueChange={(value) => onUpdateCamera(scene.id, { up: { y: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+            <NumberInput
+              step="0.05"
+              value={scene.camera.up.z}
+              onValueChange={(value) => onUpdateCamera(scene.id, { up: { z: value } })}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+          </div>
         </MiniField>
         <MiniField label="Scene Switch">
           <select

@@ -1,5 +1,5 @@
 import { isImageContent, isImportedModelContent, isPrimitiveModelContent } from "./project";
-import type { Layer, ModelAnimationPlayback, ModelAssetFormat } from "./project";
+import type { Layer, LayerEffects, ModelAnimationPlayback, ModelAssetFormat } from "./project";
 
 export type PreviewObjectType = "text" | "shape" | "image" | "model";
 
@@ -22,6 +22,7 @@ export type PreviewObject = {
   skewY: number;
   opacity: number;
   color: string;
+  effects: LayerEffects;
   clipStart?: number;
   clipEnd?: number;
   text?: string;
@@ -73,26 +74,30 @@ export function toPreviewObject(
 
   const { object } = layer;
   const activeClip = getActiveClip(layer, currentTime);
+  const basePreviewObject = {
+    id: layer.id,
+    name: layer.name,
+    locked: layer.locked,
+    x: object.transform.x,
+    y: object.transform.y,
+    z: object.transform.z,
+    rotationX: object.transform.rotationX,
+    rotationY: object.transform.rotationY,
+    rotation: object.transform.rotation,
+    scaleX: object.transform.scaleX,
+    scaleY: object.transform.scaleY,
+    scaleZ: object.transform.scaleZ,
+    skewX: object.transform.skewX,
+    skewY: object.transform.skewY,
+    opacity: object.opacity,
+    color: object.style.color,
+    effects: object.style.effects,
+  };
 
   if (layer.type === "text" && object.content && "value" in object.content) {
     return {
-      id: layer.id,
-      name: layer.name,
+      ...basePreviewObject,
       type: "text",
-      locked: layer.locked,
-      x: object.transform.x,
-      y: object.transform.y,
-      z: object.transform.z,
-      rotationX: object.transform.rotationX,
-      rotationY: object.transform.rotationY,
-      rotation: object.transform.rotation,
-      scaleX: object.transform.scaleX,
-      scaleY: object.transform.scaleY,
-      scaleZ: object.transform.scaleZ,
-      skewX: object.transform.skewX,
-      skewY: object.transform.skewY,
-      opacity: object.opacity,
-      color: object.style.color,
       text: object.content.value,
       fontSize: object.content.fontSize,
       fontWeight: object.content.fontWeight,
@@ -102,23 +107,8 @@ export function toPreviewObject(
 
   if (layer.type === "shape" && object.content && "shape" in object.content) {
     return {
-      id: layer.id,
-      name: layer.name,
+      ...basePreviewObject,
       type: "shape",
-      locked: layer.locked,
-      x: object.transform.x,
-      y: object.transform.y,
-      z: object.transform.z,
-      rotationX: object.transform.rotationX,
-      rotationY: object.transform.rotationY,
-      rotation: object.transform.rotation,
-      scaleX: object.transform.scaleX,
-      scaleY: object.transform.scaleY,
-      scaleZ: object.transform.scaleZ,
-      skewX: object.transform.skewX,
-      skewY: object.transform.skewY,
-      opacity: object.opacity,
-      color: object.style.color,
       clipStart: activeClip?.start,
       clipEnd: activeClip?.end,
       shape: object.content.shape,
@@ -133,23 +123,8 @@ export function toPreviewObject(
 
   if (layer.type === "model" && isPrimitiveModelContent(object.content)) {
     return {
-      id: layer.id,
-      name: layer.name,
+      ...basePreviewObject,
       type: "model",
-      locked: layer.locked,
-      x: object.transform.x,
-      y: object.transform.y,
-      z: object.transform.z,
-      rotationX: object.transform.rotationX,
-      rotationY: object.transform.rotationY,
-      rotation: object.transform.rotation,
-      scaleX: object.transform.scaleX,
-      scaleY: object.transform.scaleY,
-      scaleZ: object.transform.scaleZ,
-      skewX: object.transform.skewX,
-      skewY: object.transform.skewY,
-      opacity: object.opacity,
-      color: object.style.color,
       shape: object.content.shape,
       width: "width" in object.content ? object.content.width : undefined,
       height: "height" in object.content ? object.content.height : undefined,
@@ -169,24 +144,9 @@ export function toPreviewObject(
 
   if (layer.type === "model" && isImportedModelContent(object.content)) {
     return {
-      id: layer.id,
-      name: layer.name,
+      ...basePreviewObject,
       type: "model",
-      locked: layer.locked,
       assetId: object.content.assetId,
-      x: object.transform.x,
-      y: object.transform.y,
-      z: object.transform.z,
-      rotationX: object.transform.rotationX,
-      rotationY: object.transform.rotationY,
-      rotation: object.transform.rotation,
-      scaleX: object.transform.scaleX,
-      scaleY: object.transform.scaleY,
-      scaleZ: object.transform.scaleZ,
-      skewX: object.transform.skewX,
-      skewY: object.transform.skewY,
-      opacity: object.opacity,
-      color: object.style.color,
       clipStart: activeClip?.start,
       clipEnd: activeClip?.end,
       width: object.content.width,
@@ -208,24 +168,9 @@ export function toPreviewObject(
 
   if (layer.type === "image" && isImageContent(object.content)) {
     return {
-      id: layer.id,
-      name: layer.name,
+      ...basePreviewObject,
       type: "image",
-      locked: layer.locked,
       assetId: object.content.assetId,
-      x: object.transform.x,
-      y: object.transform.y,
-      z: object.transform.z,
-      rotationX: object.transform.rotationX,
-      rotationY: object.transform.rotationY,
-      rotation: object.transform.rotation,
-      scaleX: object.transform.scaleX,
-      scaleY: object.transform.scaleY,
-      scaleZ: object.transform.scaleZ,
-      skewX: object.transform.skewX,
-      skewY: object.transform.skewY,
-      opacity: object.opacity,
-      color: object.style.color,
       width: object.content.width,
       height: object.content.height,
       src: assetSources?.get(object.content.assetId) ?? object.content.src,
