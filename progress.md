@@ -11,8 +11,8 @@ Track the implementation of Option 1 (using `@xstate/store-react` for viewport i
   - [x] Remove viewport interaction fields and actions from `src/editor/store/editorStore.ts`.
 - [x] **Task 3: Refactor Viewport Component**
   - [x] Integrate `@xstate/store-react` `useSelector` in `src/editor/preview/PreviewViewport.tsx`.
-- [ ] **Task 4: Refactor AppShell Controls**
-  - [ ] Connect toolbar navigation and dropdown actions to `viewportStore` using `useSelector` and `.send()`.
+- [x] **Task 4: Refactor AppShell Controls**
+  - [x] Connect toolbar navigation and dropdown actions to `viewportStore` using `useSelector` and `.send()`.
 - [ ] **Task 5: Verification & Production Build**
   - [ ] Run formatting (`vp fmt --write`) and syntax validation (`vp check`).
   - [ ] Ensure the application builds correctly (`vp build`).

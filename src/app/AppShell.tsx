@@ -32,6 +32,8 @@ import { toPreviewObject } from "../editor/model/preview";
 import type { Project } from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
+import { useSelector } from "@xstate/store-react";
+import { viewportStore } from "../editor/store/viewportStore";
 import { TimelinePanel } from "../editor/timeline/TimelinePanel";
 
 export function AppShell() {
@@ -49,12 +51,10 @@ export function AppShell() {
   const [showGuides, setShowGuides] = useState(true);
   const [showInspectorOverlay, setShowInspectorOverlay] = useState(true);
   const [timelineZoom, setTimelineZoom] = useState(140);
-  const [activeDropdown, setActiveDropdown] = useState<"select" | "cube" | "shape" | null>(null);
 
-  const interactionMode = useEditorStore((state) => state.interactionMode);
-  const transformMode = useEditorStore((state) => state.transformMode);
-  const setInteractionMode = useEditorStore((state) => state.setInteractionMode);
-  const setTransformMode = useEditorStore((state) => state.setTransformMode);
+  const interactionMode = useSelector(viewportStore, (state) => state.context.interactionMode);
+  const transformMode = useSelector(viewportStore, (state) => state.context.transformMode);
+  const activeDropdown = useSelector(viewportStore, (state) => state.context.activeDropdown);
 
   const project = useEditorStore((state) => state.project);
   const currentTime = useEditorStore((state) => state.currentTime);
@@ -493,7 +493,12 @@ export function AppShell() {
             <div className="flex items-center rounded-full bg-black/75 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.32)] backdrop-blur-xl border border-white/5">
               <button
                 type="button"
-                onClick={() => setInteractionMode(interactionMode === "pan" ? "select" : "pan")}
+                onClick={() =>
+                  viewportStore.send({
+                    type: "setInteractionMode",
+                    mode: interactionMode === "pan" ? "select" : "pan",
+                  })
+                }
                 className={`flex h-8 px-3 items-center justify-center rounded-full transition-all ${interactionMode === "pan" ? "bg-white/16 text-white font-medium" : "text-slate-400 hover:text-slate-200"}`}
                 title="Pan tool (Hand)"
               >
@@ -501,7 +506,12 @@ export function AppShell() {
               </button>
               <button
                 type="button"
-                onClick={() => setInteractionMode(interactionMode === "orbit" ? "select" : "orbit")}
+                onClick={() =>
+                  viewportStore.send({
+                    type: "setInteractionMode",
+                    mode: interactionMode === "orbit" ? "select" : "orbit",
+                  })
+                }
                 className={`flex h-8 px-3 items-center justify-center rounded-full transition-all ${interactionMode === "orbit" ? "bg-white/16 text-white font-medium" : "text-slate-400 hover:text-slate-200"}`}
                 title="Camera orbit tool (Camera)"
               >
@@ -560,7 +570,6 @@ export function AppShell() {
             selectedId={selectedId}
             onSelect={selectLayer}
             onMove={moveLayerObject}
-            interactionMode={interactionMode}
             showGuides={showGuides}
             onCanvasReady={(canvas) => {
               previewCanvasRef.current = canvas;
@@ -575,8 +584,11 @@ export function AppShell() {
                   <button
                     type="button"
                     onClick={() => {
-                      setInteractionMode("select");
-                      setActiveDropdown(activeDropdown === "select" ? null : "select");
+                      viewportStore.send({ type: "setInteractionMode", mode: "select" });
+                      viewportStore.send({
+                        type: "setActiveDropdown",
+                        dropdown: activeDropdown === "select" ? null : "select",
+                      });
                     }}
                     className={`flex h-9 items-center gap-1 rounded-full pl-3 pr-2.5 transition ${interactionMode === "select" ? "bg-[#6f7bf6] text-white shadow-[0_4px_12px_rgba(111,123,246,0.35)] font-semibold" : "text-slate-300 hover:bg-white/5"}`}
                     title="Select and Transform Tool"
@@ -591,8 +603,8 @@ export function AppShell() {
                       <button
                         type="button"
                         onClick={() => {
-                          setTransformMode("translate");
-                          setActiveDropdown(null);
+                          viewportStore.send({ type: "setTransformMode", mode: "translate" });
+                          viewportStore.send({ type: "setActiveDropdown", dropdown: null });
                         }}
                         className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "translate" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
                       >
@@ -601,8 +613,8 @@ export function AppShell() {
                       <button
                         type="button"
                         onClick={() => {
-                          setTransformMode("rotate");
-                          setActiveDropdown(null);
+                          viewportStore.send({ type: "setTransformMode", mode: "rotate" });
+                          viewportStore.send({ type: "setActiveDropdown", dropdown: null });
                         }}
                         className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "rotate" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
                       >
@@ -611,8 +623,8 @@ export function AppShell() {
                       <button
                         type="button"
                         onClick={() => {
-                          setTransformMode("scale");
-                          setActiveDropdown(null);
+                          viewportStore.send({ type: "setTransformMode", mode: "scale" });
+                          viewportStore.send({ type: "setActiveDropdown", dropdown: null });
                         }}
                         className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "scale" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
                       >
@@ -628,7 +640,12 @@ export function AppShell() {
                 <div className="relative">
                   <button
                     type="button"
-                    onClick={() => setActiveDropdown(activeDropdown === "cube" ? null : "cube")}
+                    onClick={() =>
+                      viewportStore.send({
+                        type: "setActiveDropdown",
+                        dropdown: activeDropdown === "cube" ? null : "cube",
+                      })
+                    }
                     className={`flex h-9 w-9 items-center justify-center rounded-full transition ${activeDropdown === "cube" ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5"}`}
                     title="Add 3D mesh layer"
                   >
@@ -643,7 +660,7 @@ export function AppShell() {
                           type="button"
                           onClick={() => {
                             add3DModelLayer(shape);
-                            setActiveDropdown(null);
+                            viewportStore.send({ type: "setActiveDropdown", dropdown: null });
                           }}
                           className="flex h-8 items-center rounded-xl px-2.5 text-left text-xs text-slate-400 transition hover:bg-white/5 hover:text-white capitalize"
                         >
@@ -690,7 +707,12 @@ export function AppShell() {
                 <div className="relative flex items-center">
                   <button
                     type="button"
-                    onClick={() => setActiveDropdown(activeDropdown === "shape" ? null : "shape")}
+                    onClick={() =>
+                      viewportStore.send({
+                        type: "setActiveDropdown",
+                        dropdown: activeDropdown === "shape" ? null : "shape",
+                      })
+                    }
                     className={`flex h-9 items-center gap-0.5 rounded-full pl-2.5 pr-1.5 transition ${activeDropdown === "shape" ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5"}`}
                     title="Add 2D shape layer"
                   >
@@ -707,7 +729,7 @@ export function AppShell() {
                             type="button"
                             onClick={() => {
                               addShapeLayer(shape);
-                              setActiveDropdown(null);
+                              viewportStore.send({ type: "setActiveDropdown", dropdown: null });
                             }}
                             className="flex h-8 items-center rounded-xl px-2.5 text-left text-xs text-slate-400 transition hover:bg-white/5 hover:text-white capitalize"
                           >
