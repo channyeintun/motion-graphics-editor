@@ -1,7 +1,17 @@
-import { OrbitControls, Text, useTexture } from "@react-three/drei";
-import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
-import { type ReactNode, useLayoutEffect, useMemo, useState } from "react";
+import { OrbitControls, Text, useGLTF, useTexture } from "@react-three/drei";
+import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
+import {
+  type ReactNode,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import * as THREE from "three";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
+import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { useSelector } from "@xstate/store-react";
 import { viewportStore } from "../store/viewportStore";
 import type { PreviewObject } from "../model/preview";
@@ -250,6 +260,7 @@ export function PreviewViewport({
                     key={`outgoing-${object.id}`}
                     object={object}
                     selected={false}
+                    animationTime={sceneState.outgoingTime}
                     opacityMultiplier={
                       getSceneFrameVisual(
                         "outgoing",
@@ -272,6 +283,7 @@ export function PreviewViewport({
                   key={object.id}
                   object={object}
                   selected={object.id === selectedId}
+                  animationTime={sceneState.incomingTime}
                   opacityMultiplier={
                     getSceneFrameVisual(
                       "incoming",
@@ -627,6 +639,7 @@ function TransformHandles({
 type PreviewNodeProps = {
   object: PreviewObject;
   selected: boolean;
+  animationTime: number;
   opacityMultiplier?: number;
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
 };
@@ -637,7 +650,13 @@ type PreviewContentProps = {
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
 };
 
-function PreviewNode({ object, selected, opacityMultiplier = 1, onPointerDown }: PreviewNodeProps) {
+function PreviewNode({
+  object,
+  selected,
+  animationTime,
+  opacityMultiplier = 1,
+  onPointerDown,
+}: PreviewNodeProps) {
   const transformMatrix = useMemo(() => {
     const rotationXMatrix = new THREE.Matrix4().makeRotationX(object.rotationX);
     const rotationYMatrix = new THREE.Matrix4().makeRotationY(object.rotationY);
@@ -706,6 +725,7 @@ function PreviewNode({ object, selected, opacityMultiplier = 1, onPointerDown }:
         {object.type === "model" ? (
           <PreviewModel
             object={object}
+            animationTime={animationTime}
             opacityMultiplier={opacityMultiplier}
             onPointerDown={onPointerDown}
           />
@@ -829,7 +849,31 @@ function PreviewImage({ object, opacityMultiplier, onPointerDown }: PreviewConte
   );
 }
 
-function PreviewModel({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
+type PreviewModelProps = PreviewContentProps & {
+  animationTime: number;
+};
+
+function PreviewModel({
+  object,
+  opacityMultiplier,
+  animationTime,
+  onPointerDown,
+}: PreviewModelProps) {
+  if (object.src) {
+    return (
+      <Suspense
+        fallback={<PreviewModelFallback object={object} opacityMultiplier={opacityMultiplier} />}
+      >
+        <PreviewImportedModel
+          object={object}
+          opacityMultiplier={opacityMultiplier}
+          animationTime={animationTime}
+          onPointerDown={onPointerDown}
+        />
+      </Suspense>
+    );
+  }
+
   const materialProps = {
     color: object.color,
     transparent: true,
@@ -905,6 +949,280 @@ function PreviewModel({ object, opacityMultiplier, onPointerDown }: PreviewConte
   return null;
 }
 
+function PreviewModelFallback({
+  object,
+  opacityMultiplier,
+}: {
+  object: PreviewObject;
+  opacityMultiplier: number;
+}) {
+  const bounds = getObjectBounds(object);
+
+  return (
+    <mesh>
+      <boxGeometry args={[bounds.width, bounds.height, bounds.depth ?? 1.4]} />
+      <meshBasicMaterial
+        color="#94a3b8"
+        transparent
+        opacity={Math.max(0.12, object.opacity * opacityMultiplier * 0.24)}
+        wireframe
+      />
+    </mesh>
+  );
+}
+
+function PreviewImportedModel({
+  object,
+  opacityMultiplier,
+  animationTime,
+  onPointerDown,
+}: PreviewModelProps) {
+  const gltf = useGLTF(object.src ?? "") as unknown as GLTF;
+  const normalizedModel = useMemo(() => cloneAndNormalizeImportedScene(gltf.scene), [gltf.scene]);
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const animationClip = useMemo(
+    () => selectAnimationClip(gltf.animations, object.activeAnimation),
+    [gltf.animations, object.activeAnimation],
+  );
+
+  useLayoutEffect(() => {
+    applyImportedModelMaterial(
+      normalizedModel.scene,
+      {
+        color: object.color,
+        emissive: object.emissive,
+        emissiveIntensity: object.emissiveIntensity,
+        metalness: object.metalness,
+        opacity: object.opacity,
+        roughness: object.roughness,
+        wireframe: object.wireframe,
+      },
+      opacityMultiplier,
+    );
+  }, [
+    normalizedModel.scene,
+    object.color,
+    object.emissive,
+    object.emissiveIntensity,
+    object.metalness,
+    object.opacity,
+    object.roughness,
+    object.wireframe,
+    opacityMultiplier,
+  ]);
+
+  useEffect(() => {
+    if (!animationClip) {
+      mixerRef.current = null;
+      return;
+    }
+
+    const mixer = new THREE.AnimationMixer(normalizedModel.scene);
+    const action = mixer.clipAction(animationClip);
+    action.reset();
+    action.setLoop(
+      object.animationPlayback === "once" ? THREE.LoopOnce : THREE.LoopRepeat,
+      Number.POSITIVE_INFINITY,
+    );
+    action.clampWhenFinished = object.animationPlayback === "once";
+    action.play();
+    mixerRef.current = mixer;
+
+    return () => {
+      action.stop();
+      mixer.stopAllAction();
+      mixer.uncacheRoot(normalizedModel.scene);
+    };
+  }, [animationClip, normalizedModel.scene, object.animationPlayback]);
+
+  useFrame(() => {
+    const mixer = mixerRef.current;
+
+    if (!mixer || !animationClip || animationClip.duration <= 0) {
+      return;
+    }
+
+    const speed = object.animationSpeed ?? 1;
+    const rawTime = Math.max(0, (animationTime - (object.clipStart ?? 0)) * speed);
+    const clippedTime =
+      object.animationPlayback === "once"
+        ? Math.min(rawTime, animationClip.duration)
+        : rawTime % animationClip.duration;
+
+    mixer.setTime(clippedTime);
+  });
+
+  return (
+    <group onPointerDown={onPointerDown} scale={normalizedModel.scale}>
+      <primitive object={normalizedModel.scene} />
+    </group>
+  );
+}
+
+function cloneAndNormalizeImportedScene(scene: THREE.Group) {
+  const sceneClone = cloneSkeleton(scene) as THREE.Group;
+
+  sceneClone.traverse((child) => {
+    if (!isMesh(child)) {
+      return;
+    }
+
+    child.castShadow = true;
+    child.receiveShadow = true;
+    child.material = Array.isArray(child.material)
+      ? child.material.map((material) => cloneImportedMaterial(material))
+      : cloneImportedMaterial(child.material);
+  });
+
+  const box = new THREE.Box3().setFromObject(sceneClone);
+
+  if (box.isEmpty()) {
+    return {
+      scene: sceneClone,
+      scale: 1,
+    };
+  }
+
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const longestSide = Math.max(size.x, size.y, size.z, 0.001);
+  sceneClone.position.set(-center.x, -center.y, -center.z);
+
+  return {
+    scene: sceneClone,
+    scale: 2.6 / longestSide,
+  };
+}
+
+function applyImportedModelMaterial(
+  scene: THREE.Group,
+  settings: {
+    color: string;
+    emissive?: string;
+    emissiveIntensity?: number;
+    metalness?: number;
+    opacity: number;
+    roughness?: number;
+    wireframe?: boolean;
+  },
+  opacityMultiplier: number,
+) {
+  scene.traverse((child) => {
+    if (!isMesh(child)) {
+      return;
+    }
+
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+
+    for (const material of materials) {
+      material.transparent = true;
+      material.opacity = settings.opacity * opacityMultiplier;
+      material.depthWrite = material.opacity >= 0.98;
+
+      if (hasMaterialColor(material)) {
+        const baseColor = material.userData.previewBaseColor;
+
+        if (baseColor instanceof THREE.Color) {
+          material.color.copy(baseColor);
+        }
+
+        if (settings.color !== "#ffffff") {
+          material.color.multiply(new THREE.Color(settings.color));
+        }
+      }
+
+      if (hasRoughness(material)) {
+        material.roughness = settings.roughness ?? material.roughness;
+      }
+
+      if (hasMetalness(material)) {
+        material.metalness = settings.metalness ?? material.metalness;
+      }
+
+      if (hasEmissive(material)) {
+        material.emissive.set(settings.emissive ?? "#000000");
+      }
+
+      if (hasEmissiveIntensity(material)) {
+        material.emissiveIntensity = settings.emissiveIntensity ?? 0;
+      }
+
+      if (hasWireframe(material)) {
+        material.wireframe = settings.wireframe ?? false;
+      }
+
+      material.needsUpdate = true;
+    }
+  });
+}
+
+function selectAnimationClip(animations: GLTF["animations"], activeAnimation: string | undefined) {
+  if (animations.length === 0) {
+    return null;
+  }
+
+  if (!activeAnimation) {
+    return animations[0] ?? null;
+  }
+
+  return (
+    animations.find(
+      (animation, index) => getAnimationClipLabel(animation, index) === activeAnimation,
+    ) ??
+    animations[0] ??
+    null
+  );
+}
+
+function getAnimationClipLabel(animation: THREE.AnimationClip, index: number) {
+  return animation.name.trim() || `Animation ${index + 1}`;
+}
+
+function isMesh(object: THREE.Object3D): object is THREE.Mesh {
+  return "isMesh" in object && object.isMesh === true;
+}
+
+function cloneImportedMaterial(material: THREE.Material) {
+  const clonedMaterial = material.clone();
+
+  if (hasMaterialColor(clonedMaterial)) {
+    clonedMaterial.userData.previewBaseColor = clonedMaterial.color.clone();
+  }
+
+  return clonedMaterial;
+}
+
+type ColorMaterial = THREE.Material & { color: THREE.Color };
+type RoughnessMaterial = THREE.Material & { roughness: number };
+type MetalnessMaterial = THREE.Material & { metalness: number };
+type EmissiveMaterial = THREE.Material & { emissive: THREE.Color };
+type EmissiveIntensityMaterial = THREE.Material & { emissiveIntensity: number };
+type WireframeMaterial = THREE.Material & { wireframe: boolean };
+
+function hasMaterialColor(material: THREE.Material): material is ColorMaterial {
+  return "color" in material && material.color instanceof THREE.Color;
+}
+
+function hasRoughness(material: THREE.Material): material is RoughnessMaterial {
+  return "roughness" in material && typeof material.roughness === "number";
+}
+
+function hasMetalness(material: THREE.Material): material is MetalnessMaterial {
+  return "metalness" in material && typeof material.metalness === "number";
+}
+
+function hasEmissive(material: THREE.Material): material is EmissiveMaterial {
+  return "emissive" in material && material.emissive instanceof THREE.Color;
+}
+
+function hasEmissiveIntensity(material: THREE.Material): material is EmissiveIntensityMaterial {
+  return "emissiveIntensity" in material && typeof material.emissiveIntensity === "number";
+}
+
+function hasWireframe(material: THREE.Material): material is WireframeMaterial {
+  return "wireframe" in material && typeof material.wireframe === "boolean";
+}
+
 function SelectionFrame({
   object,
   opacityMultiplier,
@@ -962,6 +1280,14 @@ function getObjectBounds(object: PreviewObject) {
   }
 
   if (object.type === "model") {
+    if (object.src) {
+      return {
+        width: (object.width ?? 2.6) + 0.2,
+        height: (object.height ?? 2.6) + 0.2,
+        depth: (object.depth ?? 2.6) + 0.2,
+      };
+    }
+
     if (object.shape === "cube") {
       const size = (object.width ?? 1.3) + 0.15;
       return { width: size, height: size, depth: size };

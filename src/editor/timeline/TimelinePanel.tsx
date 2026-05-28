@@ -134,7 +134,16 @@ export function TimelinePanel({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", stopDragging);
     };
-  }, [dragState, duration, onMoveClip, onMoveKeyframe, onMoveSceneBoundary, onSeek, onTrimClip, zoom]);
+  }, [
+    dragState,
+    duration,
+    onMoveClip,
+    onMoveKeyframe,
+    onMoveSceneBoundary,
+    onSeek,
+    onTrimClip,
+    zoom,
+  ]);
 
   return (
     <div className="overflow-hidden rounded-[26px] border border-white/8 bg-[#090b10]">
@@ -241,7 +250,8 @@ export function TimelinePanel({
                 const sceneLeft = scene.start * zoom;
                 const sceneWidth = Math.max(72, (scene.end - scene.start) * zoom);
                 const isActiveScene =
-                  selectedSceneId === scene.id || (!selectedSceneId && currentScene?.id === scene.id);
+                  selectedSceneId === scene.id ||
+                  (!selectedSceneId && currentScene?.id === scene.id);
 
                 return (
                   <div
@@ -257,7 +267,9 @@ export function TimelinePanel({
                       }}
                       className={`h-full w-full rounded-[14px] border text-left transition ${index < scenes.length - 1 ? "pl-3 pr-5" : "px-3"} ${isActiveScene ? "border-violet-200/80 bg-violet-400/30 ring-2 ring-violet-200/60" : "border-white/12 bg-white/8 hover:bg-white/12"}`}
                     >
-                      <span className="block truncate text-xs font-medium text-white">{scene.name}</span>
+                      <span className="block truncate text-xs font-medium text-white">
+                        {scene.name}
+                      </span>
                       <span className="block text-[10px] text-white/70">
                         {scene.start.toFixed(2)}s - {scene.end.toFixed(2)}s
                       </span>

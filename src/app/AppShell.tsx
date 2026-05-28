@@ -43,10 +43,14 @@ import { toPreviewObject } from "../editor/model/preview";
 import type {
   BackgroundAnimationPreset,
   Easing,
+  ImportedModelContent,
+  ModelAssetFormat,
   Project,
   Scene,
   TransitionPreset,
 } from "../editor/model/project";
+import { isImportedModelContent, isPrimitiveModelContent } from "../editor/model/project";
+import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 import { useSelector } from "@xstate/store-react";
@@ -114,6 +118,7 @@ const BACKGROUND_ANIMATION_OPTIONS: {
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const modelInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const playbackTimeRef = useRef(0);
@@ -142,6 +147,7 @@ export function AppShell() {
   const addTextLayer = useEditorStore((state) => state.addTextLayer);
   const addShapeLayer = useEditorStore((state) => state.addShapeLayer);
   const add3DModelLayer = useEditorStore((state) => state.add3DModelLayer);
+  const addImportedModelLayer = useEditorStore((state) => state.addImportedModelLayer);
   const addImageLayer = useEditorStore((state) => state.addImageLayer);
   const addAudioLayer = useEditorStore((state) => state.addAudioLayer);
   const selectLayer = useEditorStore((state) => state.selectLayer);
@@ -208,15 +214,18 @@ export function AppShell() {
   );
 
   const previewObjects = useMemo(
-    () => sampledLayers.map((layer) => toPreviewObject(layer)).filter((object) => object !== null),
-    [sampledLayers],
+    () =>
+      sampledLayers
+        .map((layer) => toPreviewObject(layer, false, sceneState.incomingTime))
+        .filter((object) => object !== null),
+    [sampledLayers, sceneState.incomingTime],
   );
   const outgoingPreviewObjects = useMemo(
     () =>
       outgoingSampledLayers
-        .map((layer) => toPreviewObject(layer))
+        .map((layer) => toPreviewObject(layer, false, sceneState.outgoingTime))
         .filter((object) => object !== null),
-    [outgoingSampledLayers],
+    [outgoingSampledLayers, sceneState.outgoingTime],
   );
 
   const selectedId = selectedLayerIds[0] ?? null;
@@ -247,7 +256,11 @@ export function AppShell() {
       return null;
     }
 
-    return toPreviewObject(sampleLayer(selectedLayer, sceneState.incomingTime), true);
+    return toPreviewObject(
+      sampleLayer(selectedLayer, sceneState.incomingTime),
+      true,
+      sceneState.incomingTime,
+    );
   }, [sceneState.incomingTime, selectedLayer]);
   const activeScene = useMemo(
     () =>
@@ -298,8 +311,8 @@ export function AppShell() {
     if (
       !selectedLayer ||
       selectedLayer.type !== "model" ||
-      !selectedLayer.object.content ||
-      !("shape" in selectedLayer.object.content)
+      (!isPrimitiveModelContent(selectedLayer.object.content) &&
+        !isImportedModelContent(selectedLayer.object.content))
     ) {
       return null;
     }
@@ -484,6 +497,29 @@ export function AppShell() {
       const previewWidth = Number(((width / longestSide) * 2.8).toFixed(3));
       const previewHeight = Number(((height / longestSide) * 2.8).toFixed(3));
       addImageLayer(file.name.replace(/\.[^.]+$/, ""), src, previewWidth, previewHeight);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleModelImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const [src, metadata] = await Promise.all([readFileAsDataUrl(file), inspectModelFile(file)]);
+      addImportedModelLayer(
+        file.name.replace(/\.[^.]+$/, ""),
+        src,
+        getModelFormat(file.name),
+        metadata,
+      );
+    } catch (error) {
+      console.warn("Failed to import 3D model.", error);
+      window.alert("Could not import that model. Use a GLB file or a self-contained GLTF file.");
     } finally {
       event.target.value = "";
     }
@@ -680,6 +716,13 @@ export function AppShell() {
         onChange={handleImageImport}
       />
       <input
+        ref={modelInputRef}
+        type="file"
+        accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
+        className="hidden"
+        onChange={handleModelImport}
+      />
+      <input
         ref={audioInputRef}
         type="file"
         accept="audio/*"
@@ -825,7 +868,7 @@ export function AppShell() {
                     </button>
 
                     {activeDropdown === "cube" ? (
-                      <div className="absolute bottom-12 left-1/2 z-50 grid w-32 -translate-x-1/2 grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                      <div className="absolute bottom-12 left-1/2 z-50 grid w-44 -translate-x-1/2 grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
                         {MODEL_TOOL_OPTIONS.map(({ shape, icon, label }) => (
                           <ToolbarOptionButton
                             key={shape}
@@ -837,6 +880,18 @@ export function AppShell() {
                             }}
                           />
                         ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            modelInputRef.current?.click();
+                            viewportStore.send({ type: "setActiveDropdown", dropdown: null });
+                          }}
+                          className="col-span-3 mt-1 flex h-9 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/6 px-3 text-xs font-medium text-slate-100 transition hover:bg-white/12"
+                          title="Import GLB or GLTF model"
+                        >
+                          <FileUp className="h-4 w-4" />
+                          Import model
+                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -1222,89 +1277,165 @@ export function AppShell() {
                   ) : null}
 
                   {selectedModelContent ? (
-                    <InspectorSection title="3D Material">
-                      <div className="grid grid-cols-2 gap-3">
-                        <MiniField label="Roughness">
-                          <NumberInput
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={selectedModelContent.roughness ?? 0.4}
-                            onValueChange={(value) =>
-                              selectedId &&
-                              updateModelMaterial(selectedId, {
-                                roughness: value,
-                              })
-                            }
-                            disabled={selectionLocked}
-                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          />
-                        </MiniField>
-                        <MiniField label="Metalness">
-                          <NumberInput
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={selectedModelContent.metalness ?? 0.1}
-                            onValueChange={(value) =>
-                              selectedId &&
-                              updateModelMaterial(selectedId, {
-                                metalness: value,
-                              })
-                            }
-                            disabled={selectionLocked}
-                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          />
-                        </MiniField>
-                        <MiniField label="Emissive">
-                          <input
-                            type="color"
-                            value={selectedModelContent.emissive ?? "#000000"}
-                            onChange={(event) =>
-                              selectedId &&
-                              updateModelMaterial(selectedId, {
-                                emissive: event.target.value,
-                              })
-                            }
-                            disabled={selectionLocked}
-                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
-                          />
-                        </MiniField>
-                        <MiniField label="Glow">
-                          <NumberInput
-                            min="0"
-                            max="5"
-                            step="0.05"
-                            value={selectedModelContent.emissiveIntensity ?? 0}
-                            onValueChange={(value) =>
-                              selectedId &&
-                              updateModelMaterial(selectedId, {
-                                emissiveIntensity: value,
-                              })
-                            }
-                            disabled={selectionLocked}
-                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          />
-                        </MiniField>
-                        <MiniField label="Wireframe" className="col-span-2">
-                          <label className="flex h-9 items-center gap-2 rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white">
-                            <input
-                              type="checkbox"
-                              checked={selectedModelContent.wireframe ?? false}
-                              onChange={(event) =>
+                    <>
+                      {isImportedModelContent(selectedModelContent) ? (
+                        <InspectorSection title="3D Asset">
+                          <div className="grid grid-cols-2 gap-3">
+                            <MiniField label="Animation" className="col-span-2">
+                              <select
+                                value={selectedModelContent.activeAnimation ?? ""}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateModelMaterial(selectedId, {
+                                    activeAnimation: event.target.value,
+                                  })
+                                }
+                                disabled={
+                                  selectionLocked ||
+                                  selectedModelContent.animationNames.length === 0
+                                }
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              >
+                                {selectedModelContent.animationNames.length === 0 ? (
+                                  <option value="">No embedded animation</option>
+                                ) : (
+                                  selectedModelContent.animationNames.map((animationName) => (
+                                    <option key={animationName} value={animationName}>
+                                      {animationName || "Animation"}
+                                    </option>
+                                  ))
+                                )}
+                              </select>
+                            </MiniField>
+                            <MiniField label="Speed">
+                              <NumberInput
+                                min="0"
+                                max="8"
+                                step="0.05"
+                                value={selectedModelContent.animationSpeed ?? 1}
+                                onValueChange={(value) =>
+                                  selectedId &&
+                                  updateModelMaterial(selectedId, {
+                                    animationSpeed: Math.max(0, value),
+                                  })
+                                }
+                                disabled={
+                                  selectionLocked ||
+                                  selectedModelContent.animationNames.length === 0
+                                }
+                                className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                              />
+                            </MiniField>
+                            <MiniField label="Loop">
+                              <label className="flex h-10 items-center gap-2 rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    (selectedModelContent.animationPlayback ?? "loop") === "loop"
+                                  }
+                                  onChange={(event) =>
+                                    selectedId &&
+                                    updateModelMaterial(selectedId, {
+                                      animationPlayback: event.target.checked ? "loop" : "once",
+                                    })
+                                  }
+                                  disabled={
+                                    selectionLocked ||
+                                    selectedModelContent.animationNames.length === 0
+                                  }
+                                  className="accent-white disabled:cursor-not-allowed"
+                                />
+                                <span>Loop</span>
+                              </label>
+                            </MiniField>
+                          </div>
+                        </InspectorSection>
+                      ) : null}
+
+                      <InspectorSection title="3D Material">
+                        <div className="grid grid-cols-2 gap-3">
+                          <MiniField label="Roughness">
+                            <NumberInput
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={selectedModelContent.roughness ?? 0.4}
+                              onValueChange={(value) =>
                                 selectedId &&
                                 updateModelMaterial(selectedId, {
-                                  wireframe: event.target.checked,
+                                  roughness: value,
                                 })
                               }
                               disabled={selectionLocked}
-                              className="accent-white disabled:cursor-not-allowed"
+                              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                             />
-                            <span>Render as wireframe mesh</span>
-                          </label>
-                        </MiniField>
-                      </div>
-                    </InspectorSection>
+                          </MiniField>
+                          <MiniField label="Metalness">
+                            <NumberInput
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={selectedModelContent.metalness ?? 0.1}
+                              onValueChange={(value) =>
+                                selectedId &&
+                                updateModelMaterial(selectedId, {
+                                  metalness: value,
+                                })
+                              }
+                              disabled={selectionLocked}
+                              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          </MiniField>
+                          <MiniField label="Emissive">
+                            <input
+                              type="color"
+                              value={selectedModelContent.emissive ?? "#000000"}
+                              onChange={(event) =>
+                                selectedId &&
+                                updateModelMaterial(selectedId, {
+                                  emissive: event.target.value,
+                                })
+                              }
+                              disabled={selectionLocked}
+                              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          </MiniField>
+                          <MiniField label="Glow">
+                            <NumberInput
+                              min="0"
+                              max="5"
+                              step="0.05"
+                              value={selectedModelContent.emissiveIntensity ?? 0}
+                              onValueChange={(value) =>
+                                selectedId &&
+                                updateModelMaterial(selectedId, {
+                                  emissiveIntensity: value,
+                                })
+                              }
+                              disabled={selectionLocked}
+                              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          </MiniField>
+                          <MiniField label="Wireframe" className="col-span-2">
+                            <label className="flex h-9 items-center gap-2 rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white">
+                              <input
+                                type="checkbox"
+                                checked={selectedModelContent.wireframe ?? false}
+                                onChange={(event) =>
+                                  selectedId &&
+                                  updateModelMaterial(selectedId, {
+                                    wireframe: event.target.checked,
+                                  })
+                                }
+                                disabled={selectionLocked}
+                                className="accent-white disabled:cursor-not-allowed"
+                              />
+                              <span>Render as wireframe mesh</span>
+                            </label>
+                          </MiniField>
+                        </div>
+                      </InspectorSection>
+                    </>
                   ) : null}
 
                   {selectedLayer.type !== "audio" ? (
@@ -1692,13 +1823,79 @@ function readFileAsDataUrl(file: File) {
         return;
       }
 
-      reject(new Error("Failed to read audio asset."));
+      reject(new Error("Failed to read asset."));
     };
     reader.onerror = () => {
-      reject(reader.error ?? new Error("Failed to read audio asset."));
+      reject(reader.error ?? new Error("Failed to read asset."));
     };
     reader.readAsDataURL(file);
   });
+}
+
+async function inspectModelFile(
+  file: File,
+): Promise<Pick<ImportedModelContent, "width" | "height" | "depth" | "animationNames">> {
+  const [{ GLTFLoader }, three] = await Promise.all([
+    import("three/examples/jsm/loaders/GLTFLoader.js"),
+    import("three"),
+  ]);
+  const source = getModelFormat(file.name) === "glb" ? await file.arrayBuffer() : await file.text();
+  const loader = new GLTFLoader();
+  const gltf = await loader.parseAsync(source, "");
+  return getImportedModelMetadata(gltf, three);
+}
+
+function getImportedModelMetadata(
+  gltf: GLTF,
+  three: typeof import("three"),
+): Pick<ImportedModelContent, "width" | "height" | "depth" | "animationNames"> {
+  const box = new three.Box3().setFromObject(gltf.scene);
+
+  if (box.isEmpty()) {
+    return {
+      width: 2.4,
+      height: 2.4,
+      depth: 2.4,
+      animationNames: getUniqueAnimationNames(gltf.animations),
+    };
+  }
+
+  const size = box.getSize(new three.Vector3());
+  const longestSide = Math.max(size.x, size.y, size.z, 0.001);
+  const fitScale = 2.6 / longestSide;
+
+  return {
+    width: roundModelSize(size.x * fitScale),
+    height: roundModelSize(size.y * fitScale),
+    depth: roundModelSize(size.z * fitScale),
+    animationNames: getUniqueAnimationNames(gltf.animations),
+  };
+}
+
+function getUniqueAnimationNames(animations: GLTF["animations"]) {
+  const usedNames = new Set<string>();
+
+  return animations.map((animation, index) => {
+    const baseName = animation.name.trim() || `Animation ${index + 1}`;
+    let name = baseName;
+    let suffix = 2;
+
+    while (usedNames.has(name)) {
+      name = `${baseName} ${suffix}`;
+      suffix += 1;
+    }
+
+    usedNames.add(name);
+    return name;
+  });
+}
+
+function roundModelSize(value: number) {
+  return Number(Math.max(0.2, value).toFixed(3));
+}
+
+function getModelFormat(fileName: string): ModelAssetFormat {
+  return fileName.toLowerCase().endsWith(".gltf") ? "gltf" : "glb";
 }
 
 function readImageDimensions(src: string) {

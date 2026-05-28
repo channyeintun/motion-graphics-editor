@@ -81,20 +81,48 @@ export type ShapeContent = {
   innerRadius?: number;
 };
 
-export type ModelContent = {
-  shape: "cube" | "sphere" | "cylinder" | "cone" | "torus";
-  width?: number;
-  height?: number;
-  depth?: number;
-  radius?: number;
-  radialSegments?: number;
-  tubularRadius?: number;
+export const primitiveModelShapes = ["cube", "sphere", "cylinder", "cone", "torus"] as const;
+
+export type PrimitiveModelShape = (typeof primitiveModelShapes)[number];
+
+export type ModelAssetFormat = "glb" | "gltf";
+
+export type ModelAnimationPlayback = "loop" | "once";
+
+export type ModelMaterialContent = {
   roughness?: number;
   metalness?: number;
   emissive?: string;
   emissiveIntensity?: number;
   wireframe?: boolean;
 };
+
+export type PrimitiveModelContent = ModelMaterialContent & {
+  kind?: "primitive";
+  shape: PrimitiveModelShape;
+  width?: number;
+  height?: number;
+  depth?: number;
+  radius?: number;
+  radialSegments?: number;
+  tubularRadius?: number;
+};
+
+export type ImportedModelContent = ModelMaterialContent & {
+  kind: "asset";
+  assetId: string;
+  src: string;
+  format: ModelAssetFormat;
+  width: number;
+  height: number;
+  depth: number;
+  animationNames: string[];
+  activeAnimation?: string;
+  animationPlayback?: ModelAnimationPlayback;
+  animationSpeed?: number;
+};
+
+export type ModelContent = PrimitiveModelContent | ImportedModelContent;
 
 export type ImageContent = {
   assetId: string;
@@ -147,11 +175,14 @@ export type Clip = {
 export type Asset = {
   id: string;
   name: string;
-  type: "audio" | "image";
+  type: "audio" | "image" | "model";
   src: string;
   waveform?: number[];
   width?: number;
   height?: number;
+  depth?: number;
+  format?: ModelAssetFormat;
+  animationNames?: string[];
 };
 
 export type Layer = {
@@ -183,3 +214,27 @@ export type Project = {
   assets: Asset[];
   timeline: Timeline;
 };
+
+export function isPrimitiveModelShape(value: unknown): value is PrimitiveModelShape {
+  return primitiveModelShapes.some((shape) => shape === value);
+}
+
+export function isPrimitiveModelContent(
+  content: SceneObject["content"],
+): content is PrimitiveModelContent {
+  if (!content) {
+    return false;
+  }
+
+  return "shape" in content && isPrimitiveModelShape(content.shape);
+}
+
+export function isImportedModelContent(
+  content: SceneObject["content"],
+): content is ImportedModelContent {
+  if (!content) {
+    return false;
+  }
+
+  return "assetId" in content && "src" in content && "format" in content;
+}

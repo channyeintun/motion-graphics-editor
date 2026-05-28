@@ -41,7 +41,7 @@ export function sampleSceneState(project: Project, currentTime: number): Sampled
   return {
     currentScene,
     outgoingScene: isTransitioning ? outgoingScene : null,
-    transitionPreset: isTransitioning ? transition?.preset ?? "none" : "none",
+    transitionPreset: isTransitioning ? (transition?.preset ?? "none") : "none",
     transitionProgress,
     isTransitioning,
     incomingTime: currentTime,

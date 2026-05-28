@@ -7,7 +7,10 @@ import type {
   Clip,
   ClipTransition,
   Easing,
+  ImportedModelContent,
   Layer,
+  ModelAnimationPlayback,
+  ModelAssetFormat,
   Scene,
   SceneBackground,
   SceneTransition,
@@ -15,8 +18,11 @@ import type {
   Project,
   ShapeContent,
   ModelContent,
+  ModelMaterialContent,
+  PrimitiveModelShape,
   Transform,
 } from "../model/project";
+import { isImportedModelContent, isPrimitiveModelContent } from "../model/project";
 import { clampClipEdge, clampClipMove, minClipDuration } from "../timeline/timelineMath";
 
 export const STORAGE_KEY = "motion-graphics-editor.project";
@@ -37,7 +43,13 @@ type EditorState = {
   replaceProject: (project: Project) => void;
   addTextLayer: () => void;
   addShapeLayer: (shape?: "rectangle" | "circle" | "triangle" | "star" | "polygon") => void;
-  add3DModelLayer: (shape: "cube" | "sphere" | "cylinder" | "cone" | "torus") => void;
+  add3DModelLayer: (shape: PrimitiveModelShape) => void;
+  addImportedModelLayer: (
+    name: string,
+    src: string,
+    format: ModelAssetFormat,
+    metadata: Pick<ImportedModelContent, "width" | "height" | "depth" | "animationNames">,
+  ) => void;
   addImageLayer: (name: string, src: string, width: number, height: number) => void;
   addAudioLayer: (name: string, src: string, waveform: number[], duration: number) => void;
   renameLayer: (layerId: string, name: string) => void;
@@ -54,7 +66,11 @@ type EditorState = {
   updateModelMaterial: (
     layerId: string,
     patch: Partial<
-      Pick<ModelContent, "roughness" | "metalness" | "emissive" | "emissiveIntensity" | "wireframe">
+      ModelMaterialContent & {
+        activeAnimation: string;
+        animationPlayback: ModelAnimationPlayback;
+        animationSpeed: number;
+      }
     >,
   ) => void;
   updateTransformProperty: (
@@ -754,6 +770,81 @@ export const useEditorStore = create<EditorState>((set) => {
         };
       });
     },
+    addImportedModelLayer: (name, src, format, metadata) => {
+      set((state) => {
+        const assetId = `model-${crypto.randomUUID()}`;
+        const layerId = `model-layer-${crypto.randomUUID()}`;
+        const content: ImportedModelContent = {
+          kind: "asset",
+          assetId,
+          src,
+          format,
+          width: metadata.width,
+          height: metadata.height,
+          depth: metadata.depth,
+          animationNames: metadata.animationNames,
+          activeAnimation: metadata.animationNames[0] ?? "",
+          animationPlayback: "loop",
+          animationSpeed: 1,
+          roughness: 0.4,
+          metalness: 0.1,
+          emissive: "#000000",
+          emissiveIntensity: 0,
+          wireframe: false,
+        };
+
+        return {
+          project: {
+            ...state.project,
+            assets: [
+              {
+                id: assetId,
+                name,
+                type: "model",
+                src,
+                format,
+                width: metadata.width,
+                height: metadata.height,
+                depth: metadata.depth,
+                animationNames: metadata.animationNames,
+              },
+              ...state.project.assets,
+            ],
+            layers: [
+              {
+                id: layerId,
+                name,
+                type: "model",
+                visible: true,
+                locked: false,
+                object: {
+                  id: `${layerId}-object`,
+                  transform: createDefaultTransform(),
+                  opacity: 1,
+                  style: { color: "#ffffff" },
+                  content,
+                },
+                clips: [
+                  {
+                    id: `${layerId}-clip`,
+                    layerId,
+                    name: `${name} Model`,
+                    start: 0,
+                    end: state.project.duration,
+                    enabled: true,
+                    transitionIn: createDefaultClipTransition(),
+                    transitionOut: createDefaultClipTransition(),
+                    keyframes: [],
+                  },
+                ],
+              },
+              ...state.project.layers,
+            ],
+          },
+          selectedLayerIds: [layerId],
+        };
+      });
+    },
     addImageLayer: (name, src, width, height) => {
       set((state) => {
         const assetId = `image-${crypto.randomUUID()}`;
@@ -1070,8 +1161,8 @@ export const useEditorStore = create<EditorState>((set) => {
               layer.id !== layerId ||
               layer.locked ||
               layer.type !== "model" ||
-              !layer.object.content ||
-              !("shape" in layer.object.content)
+              (!isPrimitiveModelContent(layer.object.content) &&
+                !isImportedModelContent(layer.object.content))
             ) {
               return layer;
             }

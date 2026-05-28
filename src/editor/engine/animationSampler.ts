@@ -50,12 +50,7 @@ export function sampleLayer(layer: Layer, currentTime: number) {
         ),
         scaleX: sampleNumericProperty(layer.object.transform.scaleX, clip, currentTime, "scaleX"),
         scaleY: sampleNumericProperty(layer.object.transform.scaleY, clip, currentTime, "scaleY"),
-        scaleZ: sampleNumericProperty(
-          layer.object.transform.scaleZ,
-          clip,
-          currentTime,
-          "scaleZ",
-        ),
+        scaleZ: sampleNumericProperty(layer.object.transform.scaleZ, clip, currentTime, "scaleZ"),
         skewX: sampleNumericProperty(layer.object.transform.skewX, clip, currentTime, "skewX"),
         skewY: sampleNumericProperty(layer.object.transform.skewY, clip, currentTime, "skewY"),
       },
@@ -77,20 +72,8 @@ function applyClipTransitions(layer: Layer, clip: Clip, currentTime: number) {
     },
   };
 
-  applyTransitionState(
-    nextLayer,
-    clip.transitionIn,
-    clip.start,
-    currentTime,
-    true,
-  );
-  applyTransitionState(
-    nextLayer,
-    clip.transitionOut,
-    clip.end,
-    currentTime,
-    false,
-  );
+  applyTransitionState(nextLayer, clip.transitionIn, clip.start, currentTime, true);
+  applyTransitionState(nextLayer, clip.transitionOut, clip.end, currentTime, false);
 
   return nextLayer;
 }

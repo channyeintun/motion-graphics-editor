@@ -1,4 +1,5 @@
-import type { Layer } from "./project";
+import { isImportedModelContent, isPrimitiveModelContent } from "./project";
+import type { Layer, ModelAnimationPlayback, ModelAssetFormat } from "./project";
 
 export type PreviewObjectType = "text" | "shape" | "image" | "model";
 
@@ -20,6 +21,8 @@ export type PreviewObject = {
   skewY: number;
   opacity: number;
   color: string;
+  clipStart?: number;
+  clipEnd?: number;
   text?: string;
   fontSize?: number;
   fontWeight?: number;
@@ -50,14 +53,24 @@ export type PreviewObject = {
   emissiveIntensity?: number;
   wireframe?: boolean;
   src?: string;
+  modelFormat?: ModelAssetFormat;
+  animationNames?: string[];
+  activeAnimation?: string;
+  animationPlayback?: ModelAnimationPlayback;
+  animationSpeed?: number;
 };
 
-export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObject | null {
+export function toPreviewObject(
+  layer: Layer,
+  includeHidden = false,
+  currentTime?: number,
+): PreviewObject | null {
   if (!includeHidden && !layer.visible) {
     return null;
   }
 
   const { object } = layer;
+  const activeClip = getActiveClip(layer, currentTime);
 
   if (layer.type === "text" && object.content && "value" in object.content) {
     return {
@@ -104,6 +117,8 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       skewY: object.transform.skewY,
       opacity: object.opacity,
       color: object.style.color,
+      clipStart: activeClip?.start,
+      clipEnd: activeClip?.end,
       shape: object.content.shape,
       width: "width" in object.content ? object.content.width : undefined,
       height: "height" in object.content ? object.content.height : undefined,
@@ -114,7 +129,7 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
     };
   }
 
-  if (layer.type === "model" && object.content && "shape" in object.content) {
+  if (layer.type === "model" && isPrimitiveModelContent(object.content)) {
     return {
       id: layer.id,
       name: layer.name,
@@ -150,6 +165,44 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
     };
   }
 
+  if (layer.type === "model" && isImportedModelContent(object.content)) {
+    return {
+      id: layer.id,
+      name: layer.name,
+      type: "model",
+      locked: layer.locked,
+      x: object.transform.x,
+      y: object.transform.y,
+      z: object.transform.z,
+      rotationX: object.transform.rotationX,
+      rotationY: object.transform.rotationY,
+      rotation: object.transform.rotation,
+      scaleX: object.transform.scaleX,
+      scaleY: object.transform.scaleY,
+      scaleZ: object.transform.scaleZ,
+      skewX: object.transform.skewX,
+      skewY: object.transform.skewY,
+      opacity: object.opacity,
+      color: object.style.color,
+      clipStart: activeClip?.start,
+      clipEnd: activeClip?.end,
+      width: object.content.width,
+      height: object.content.height,
+      depth: object.content.depth,
+      roughness: object.content.roughness,
+      metalness: object.content.metalness,
+      emissive: object.content.emissive,
+      emissiveIntensity: object.content.emissiveIntensity,
+      wireframe: object.content.wireframe,
+      src: object.content.src,
+      modelFormat: object.content.format,
+      animationNames: object.content.animationNames,
+      activeAnimation: object.content.activeAnimation,
+      animationPlayback: object.content.animationPlayback,
+      animationSpeed: object.content.animationSpeed,
+    };
+  }
+
   if (
     layer.type === "image" &&
     object.content &&
@@ -181,4 +234,18 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
   }
 
   return null;
+}
+
+function getActiveClip(layer: Layer, currentTime: number | undefined) {
+  if (typeof currentTime !== "number") {
+    return layer.clips[0] ?? null;
+  }
+
+  return (
+    layer.clips.find(
+      (clip) => clip.enabled && currentTime >= clip.start && currentTime <= clip.end,
+    ) ??
+    layer.clips[0] ??
+    null
+  );
 }

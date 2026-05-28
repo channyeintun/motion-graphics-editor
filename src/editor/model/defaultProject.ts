@@ -1,6 +1,6 @@
-import type { Layer, Project, Scene } from "./project";
+import type { Clip, Layer, Project, Scene } from "./project";
 
-function makeClip(layerId: string, name: string) {
+function makeClip(layerId: string, name: string): Clip {
   return {
     id: `${layerId}-clip`,
     layerId,
