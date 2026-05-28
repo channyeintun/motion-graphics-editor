@@ -1,4 +1,11 @@
-import { OrbitControls, Text, useGLTF, useTexture } from "@react-three/drei";
+import {
+  GizmoHelper,
+  GizmoViewport,
+  OrbitControls,
+  Text,
+  useGLTF,
+  useTexture,
+} from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -205,6 +212,8 @@ export function PreviewViewport({
           <ambientLight intensity={1.4} />
           <directionalLight position={[2, 4, 10]} intensity={0.65} />
 
+          <OrbitCameraGizmo orbitActive={interactionMode === "orbit"} />
+
           {interactionMode === "orbit" ? (
             <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
           ) : null}
@@ -366,6 +375,44 @@ function ResponsiveCamera({ sceneState }: { sceneState: SampledSceneState }) {
   ]);
 
   return null;
+}
+
+function OrbitCameraGizmo({ orbitActive }: { orbitActive: boolean }) {
+  const axisColors: [string, string, string] = orbitActive
+    ? ["#ff5b8c", "#63e6a9", "#73a0ff"]
+    : ["#72505b", "#4b685d", "#4b5d83"];
+
+  return (
+    <GizmoHelper alignment="top-right" margin={[74, 74]} renderPriority={1}>
+      <group scale={0.92}>
+        <mesh position={[0, 0, -0.04]} renderOrder={2}>
+          <circleGeometry args={[1.52, 64]} />
+          <meshBasicMaterial
+            color="#111318"
+            transparent
+            opacity={orbitActive ? 0.96 : 0.82}
+            toneMapped={false}
+          />
+        </mesh>
+        <mesh position={[0, 0, -0.02]} renderOrder={3}>
+          <ringGeometry args={[1.03, 1.15, 64]} />
+          <meshBasicMaterial
+            color="#2c2f35"
+            transparent
+            opacity={orbitActive ? 0.96 : 0.74}
+            toneMapped={false}
+          />
+        </mesh>
+        <GizmoViewport
+          axisColors={axisColors}
+          axisScale={[0.74, 0.05, 0.05]}
+          axisHeadScale={0.88}
+          labels={["", "", ""]}
+          disabled={!orbitActive}
+        />
+      </group>
+    </GizmoHelper>
+  );
 }
 
 function SceneBackdrops({ sceneState }: { sceneState: SampledSceneState }) {
