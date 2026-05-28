@@ -26,10 +26,23 @@ export type TextContent = {
 };
 
 export type ShapeContent = {
-  shape: "rectangle" | "circle";
+  shape: "rectangle" | "circle" | "triangle" | "star" | "polygon";
   width?: number;
   height?: number;
   radius?: number;
+  sides?: number;
+  points?: number;
+  innerRadius?: number;
+};
+
+export type ModelContent = {
+  shape: "cube" | "sphere" | "cylinder" | "cone" | "torus";
+  width?: number;
+  height?: number;
+  depth?: number;
+  radius?: number;
+  radialSegments?: number;
+  tubularRadius?: number;
 };
 
 export type ImageContent = {
@@ -52,7 +65,7 @@ export type SceneObject = {
   transform: Transform;
   opacity: number;
   style: ObjectStyle;
-  content?: TextContent | ShapeContent | ImageContent | AudioContent;
+  content?: TextContent | ShapeContent | ImageContent | AudioContent | ModelContent;
 };
 
 export type Keyframe = {
