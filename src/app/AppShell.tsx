@@ -128,6 +128,8 @@ const BACKGROUND_ANIMATION_OPTIONS: {
 ];
 
 const MAX_HISTORY_ENTRIES = 100;
+const MIN_EXPORT_HEIGHT = 1080;
+const EXPORT_VIDEO_BITRATE = 16_000_000;
 
 type ResolvedAssetUrlEntry = {
   url: string;
@@ -185,10 +187,29 @@ function getModelImportMimeType(file: File) {
   );
 }
 
+function waitForAnimationFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
+}
+
+function getSupportedWebmMimeType() {
+  if (typeof MediaRecorder === "undefined") {
+    return null;
+  }
+
+  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+
+  return candidates.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? null;
+}
+
 function createCompositeExportCanvas(sourceCanvas: HTMLCanvasElement) {
+  const aspectRatio = sourceCanvas.width / Math.max(sourceCanvas.height, 1);
+  const targetHeight = Math.max(sourceCanvas.height, MIN_EXPORT_HEIGHT);
   const compositeCanvas = document.createElement("canvas");
-  compositeCanvas.width = sourceCanvas.width;
-  compositeCanvas.height = sourceCanvas.height;
+
+  compositeCanvas.width = Math.round(targetHeight * aspectRatio);
+  compositeCanvas.height = targetHeight;
   return compositeCanvas;
 }
 
@@ -203,6 +224,8 @@ function drawCompositeExportFrame(
     return false;
   }
 
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
   drawSceneBackdropFrame(context, sceneState);
   context.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
   return true;
@@ -216,7 +239,6 @@ export function AppShell() {
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const playbackTimeRef = useRef(0);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const sceneStateRef = useRef<SampledSceneState | null>(null);
   const historyRef = useRef<Project[]>([]);
   const futureRef = useRef<Project[]>([]);
   const skipHistoryRef = useRef(false);
@@ -299,7 +321,6 @@ export function AppShell() {
   const seek = useEditorStore((state) => state.seek);
 
   const sceneState = useMemo(() => sampleSceneState(project, currentTime), [currentTime, project]);
-  sceneStateRef.current = sceneState;
   const sampledLayers = useMemo(
     () => project.layers.map((layer) => sampleLayer(layer, sceneState.incomingTime)),
     [project.layers, sceneState.incomingTime],
@@ -895,73 +916,113 @@ export function AppShell() {
   };
 
   const handleExportWebm = () => {
-    const canvas = previewCanvasRef.current;
+    void (async () => {
+      const canvas = previewCanvasRef.current;
+      const mimeType = getSupportedWebmMimeType();
 
-    if (!canvas || typeof MediaRecorder === "undefined") {
-      return;
-    }
-
-    const compositeCanvas = createCompositeExportCanvas(canvas);
-
-    if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
-      return;
-    }
-
-    const previousLoopPlayback = loopPlayback;
-    const chunks: Blob[] = [];
-    let compositeFrameId = 0;
-    const recorder = new MediaRecorder(compositeCanvas.captureStream(project.fps), {
-      mimeType: "video/webm",
-    });
-    const drawFrame = () => {
-      const nextSceneState = sceneStateRef.current;
-
-      if (nextSceneState) {
-        drawCompositeExportFrame(compositeCanvas, canvas, nextSceneState);
+      if (!canvas || typeof MediaRecorder === "undefined" || !mimeType) {
+        return;
       }
 
-      compositeFrameId = window.requestAnimationFrame(drawFrame);
-    };
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-    recorder.onstop = () => {
-      if (compositeFrameId) {
-        window.cancelAnimationFrame(compositeFrameId);
+      const compositeCanvas = createCompositeExportCanvas(canvas);
+
+      if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
+        return;
       }
 
-      const blob = new Blob(chunks, { type: "video/webm" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.webm`;
-      link.click();
-      URL.revokeObjectURL(url);
-    };
+      const stream = compositeCanvas.captureStream(0);
+      const videoTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack | undefined;
+      const previousLoopPlayback = loopPlayback;
+      const previousIsPlaying = isPlaying;
+      const previousTime = playbackTimeRef.current;
+      const chunks: Blob[] = [];
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: EXPORT_VIDEO_BITRATE,
+      });
+      const finishRecording = new Promise<Blob>((resolve, reject) => {
+        recorder.onerror = (event) => {
+          reject(event.error ?? new Error("Video export failed."));
+        };
+        recorder.onstop = () => {
+          resolve(new Blob(chunks, { type: mimeType }));
+        };
+      });
 
-    seek(0);
-    setLoopPlayback(false);
-    window.requestAnimationFrame(() => {
-      const nextSceneState = sceneStateRef.current ?? sceneState;
-      drawCompositeExportFrame(compositeCanvas, canvas, nextSceneState);
-      drawFrame();
-      recorder.start();
-      setPlaying(true);
-      window.setTimeout(
-        () => {
-          setPlaying(false);
-          setLoopPlayback(previousLoopPlayback);
-          seek(project.duration);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
 
-          if (recorder.state !== "inactive") {
-            recorder.stop();
+      try {
+        setPlaying(false);
+        setLoopPlayback(false);
+        recorder.start();
+
+        const exportFps = Math.max(1, Math.round(project.fps));
+        const frameCount = Math.max(1, Math.ceil(project.duration * exportFps));
+
+        if (videoTrack && typeof videoTrack.requestFrame === "function") {
+          for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+            const frameTime = Math.min(project.duration, frameIndex / exportFps);
+
+            seek(frameTime);
+            await waitForAnimationFrame();
+            drawCompositeExportFrame(compositeCanvas, canvas, sampleSceneState(project, frameTime));
+            videoTrack.requestFrame();
           }
-        },
-        project.duration * 1000 + Math.ceil(1000 / project.fps),
-      );
-    });
+        } else {
+          let compositeFrameId = 0;
+
+          const drawFrame = () => {
+            drawCompositeExportFrame(
+              compositeCanvas,
+              canvas,
+              sampleSceneState(project, playbackTimeRef.current),
+            );
+            compositeFrameId = window.requestAnimationFrame(drawFrame);
+          };
+
+          seek(0);
+          await waitForAnimationFrame();
+          drawFrame();
+          setPlaying(true);
+
+          await new Promise<void>((resolve) => {
+            window.setTimeout(
+              () => {
+                if (compositeFrameId) {
+                  window.cancelAnimationFrame(compositeFrameId);
+                }
+
+                resolve();
+              },
+              project.duration * 1000 + Math.ceil(1000 / exportFps),
+            );
+          });
+        }
+
+        if (recorder.state !== "inactive") {
+          recorder.stop();
+        }
+
+        const blob = await finishRecording;
+        downloadBlob(blob, `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.webm`);
+      } catch (error) {
+        console.warn("Failed to export preview video.", error);
+        window.alert("Could not export that preview video.");
+
+        if (recorder.state !== "inactive") {
+          recorder.stop();
+        }
+      } finally {
+        stream.getTracks().forEach((track) => track.stop());
+        seek(previousTime);
+        setLoopPlayback(previousLoopPlayback);
+        setPlaying(previousIsPlaying);
+      }
+    })();
   };
 
   const projectFileSection = (
