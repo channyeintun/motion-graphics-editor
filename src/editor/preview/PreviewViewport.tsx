@@ -694,6 +694,8 @@ function PreviewNode({
   opacityMultiplier = 1,
   onPointerDown,
 }: PreviewNodeProps) {
+  const effectiveOpacity = object.opacity * opacityMultiplier;
+
   const transformMatrix = useMemo(() => {
     const rotationXMatrix = new THREE.Matrix4().makeRotationX(object.rotationX);
     const rotationYMatrix = new THREE.Matrix4().makeRotationY(object.rotationY);
@@ -733,6 +735,10 @@ function PreviewNode({
     object.skewX,
     object.skewY,
   ]);
+
+  if (effectiveOpacity <= 0.001) {
+    return null;
+  }
 
   return (
     <group position={[object.x, object.y, object.z + (object.type === "model" ? 0.65 : 0.5)]}>
