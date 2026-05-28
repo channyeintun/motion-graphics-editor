@@ -6,6 +6,7 @@ export type PreviewObject = {
   id: string;
   name: string;
   type: PreviewObjectType;
+  locked: boolean;
   x: number;
   y: number;
   rotation: number;
@@ -21,7 +22,11 @@ export type PreviewObject = {
   radius?: number;
 };
 
-export function toPreviewObject(layer: Layer): PreviewObject | null {
+export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObject | null {
+  if (!includeHidden && !layer.visible) {
+    return null;
+  }
+
   const { object } = layer;
 
   if (layer.type === "text" && object.content && "value" in object.content) {
@@ -29,6 +34,7 @@ export function toPreviewObject(layer: Layer): PreviewObject | null {
       id: layer.id,
       name: layer.name,
       type: "text",
+      locked: layer.locked,
       x: object.transform.x,
       y: object.transform.y,
       rotation: object.transform.rotation,
@@ -46,6 +52,7 @@ export function toPreviewObject(layer: Layer): PreviewObject | null {
       id: layer.id,
       name: layer.name,
       type: "shape",
+      locked: layer.locked,
       x: object.transform.x,
       y: object.transform.y,
       rotation: object.transform.rotation,

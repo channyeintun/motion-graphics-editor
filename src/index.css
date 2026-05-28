@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "SF Pro Display", "SF Pro Text", "Avenir Next", ui-sans-serif, sans-serif;
 }
 
 :root {
@@ -10,7 +10,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #e2e8f0;
-  background: #090b10;
+  background: #d8d4cd;
 }
 
 html,
@@ -22,9 +22,7 @@ body,
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(76, 29, 149, 0.24), transparent 35%),
-    linear-gradient(180deg, #090b10, #05070a 60%);
+  background: linear-gradient(180deg, #ddd9d2 0%, #bcb6ae 38%, #100f14 100%);
 }
 
 button,

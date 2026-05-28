@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { createDefaultProject } from "../model/defaultProject";
 import type { Project } from "../model/project";
-import { clampClipEdge, clampClipMove } from "../timeline/timelineMath";
+import { clampClipEdge, clampClipMove, minClipDuration } from "../timeline/timelineMath";
 
 export const STORAGE_KEY = "motion-graphics-editor.project";
 
@@ -58,6 +58,10 @@ function getInitialProject() {
   } catch {
     return createDefaultProject();
   }
+}
+
+function isLayerLocked(project: Project, layerId: string) {
+  return project.layers.some((layer) => layer.id === layerId && layer.locked);
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -184,9 +188,11 @@ export const useEditorStore = create<EditorState>((set) => ({
     set((state) => {
       const assetId = `audio-${crypto.randomUUID()}`;
       const layerId = `audio-layer-${crypto.randomUUID()}`;
+      const clipDuration =
+        Number.isFinite(duration) && duration > 0 ? Math.max(duration, minClipDuration) : 1;
       const nextDuration = Math.max(
         state.project.duration,
-        Math.ceil(duration) || state.project.duration,
+        Math.ceil(clipDuration) || state.project.duration,
       );
 
       return {
@@ -227,7 +233,7 @@ export const useEditorStore = create<EditorState>((set) => ({
                   layerId,
                   name: `${name} Audio`,
                   start: 0,
-                  end: nextDuration,
+                  end: clipDuration,
                   enabled: true,
                   keyframes: [],
                 },
@@ -241,14 +247,20 @@ export const useEditorStore = create<EditorState>((set) => ({
     });
   },
   renameLayer: (layerId, name) => {
-    set((state) => ({
-      project: {
-        ...state.project,
-        layers: state.project.layers.map((layer) =>
-          layer.id === layerId ? { ...layer, name } : layer,
-        ),
-      },
-    }));
+    set((state) => {
+      if (isLayerLocked(state.project, layerId)) {
+        return state;
+      }
+
+      return {
+        project: {
+          ...state.project,
+          layers: state.project.layers.map((layer) =>
+            layer.id === layerId ? { ...layer, name } : layer,
+          ),
+        },
+      };
+    });
   },
   toggleLayerVisibility: (layerId) => {
     set((state) => ({
@@ -272,6 +284,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   },
   reorderLayer: (layerId, direction) => {
     set((state) => {
+      if (isLayerLocked(state.project, layerId)) {
+        return state;
+      }
+
       const index = state.project.layers.findIndex((layer) => layer.id === layerId);
 
       if (index < 0) {
@@ -306,6 +322,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         layers: state.project.layers.map((layer) => {
           if (
             layer.id !== layerId ||
+            layer.locked ||
             layer.type !== "text" ||
             !layer.object.content ||
             !("value" in layer.object.content)
@@ -332,7 +349,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...state.project,
         layers: state.project.layers.map((layer) =>
-          layer.id === layerId
+          layer.id === layerId && !layer.locked
             ? {
                 ...layer,
                 object: {
@@ -350,7 +367,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...state.project,
         layers: state.project.layers.map((layer) =>
-          layer.id === layerId
+          layer.id === layerId && !layer.locked
             ? {
                 ...layer,
                 object: {
@@ -368,7 +385,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...state.project,
         layers: state.project.layers.map((layer) =>
-          layer.id === layerId
+          layer.id === layerId && !layer.locked
             ? {
                 ...layer,
                 object: {
@@ -390,7 +407,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...state.project,
         layers: state.project.layers.map((layer) =>
-          layer.id === layerId
+          layer.id === layerId && !layer.locked
             ? {
                 ...layer,
                 object: {
@@ -414,7 +431,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         layers: state.project.layers.map((layer) => ({
           ...layer,
           clips: layer.clips.map((clip) => {
-            if (clip.id !== clipId) {
+            if (clip.id !== clipId || layer.locked) {
               return clip;
             }
 
@@ -437,7 +454,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         layers: state.project.layers.map((layer) => ({
           ...layer,
           clips: layer.clips.map((clip) => {
-            if (clip.id !== clipId) {
+            if (clip.id !== clipId || layer.locked) {
               return clip;
             }
 
@@ -457,7 +474,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       project: {
         ...state.project,
         layers: state.project.layers.map((layer) => {
-          if (layer.id !== layerId) {
+          if (layer.id !== layerId || layer.locked) {
             return layer;
           }
 
@@ -502,7 +519,7 @@ export const useEditorStore = create<EditorState>((set) => ({
           clips: layer.clips.map((clip) => ({
             ...clip,
             keyframes: clip.keyframes.map((keyframe) =>
-              keyframe.id === keyframeId
+              keyframe.id === keyframeId && !layer.locked
                 ? {
                     ...keyframe,
                     time: Math.min(clip.end, Math.max(clip.start, nextTime)),
@@ -522,7 +539,9 @@ export const useEditorStore = create<EditorState>((set) => ({
           ...layer,
           clips: layer.clips.map((clip) => ({
             ...clip,
-            keyframes: clip.keyframes.filter((keyframe) => keyframe.id !== keyframeId),
+            keyframes: layer.locked
+              ? clip.keyframes
+              : clip.keyframes.filter((keyframe) => keyframe.id !== keyframeId),
           })),
         })),
       },

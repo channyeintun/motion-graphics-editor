@@ -103,7 +103,7 @@ export function TimelinePanel({
   }, [dragState, duration, onMoveClip, onMoveKeyframe, onSeek, onTrimClip, zoom]);
 
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-white/8 bg-[#090b10]">
+    <div className="overflow-hidden rounded-[26px] border border-white/8 bg-[#090b10]">
       <div className="grid grid-cols-[220px_minmax(0,1fr)] border-b border-white/8 text-xs text-slate-500">
         <div className="border-r border-white/8 px-4 py-3 uppercase tracking-[0.32em]">Layers</div>
         <div className="px-4 py-3 uppercase tracking-[0.32em]">Timeline</div>
@@ -116,14 +116,18 @@ export function TimelinePanel({
               key={layer.id}
               type="button"
               onClick={(event) => onSelectLayer(layer.id, event.shiftKey)}
-              className={`flex h-[76px] w-full items-center justify-between border-b border-white/6 px-4 text-left transition hover:bg-white/4 ${selectedLayerIds.includes(layer.id) ? "bg-white/6" : ""}`}
+              className={`flex h-[64px] w-full items-center justify-between border-b border-white/6 px-4 text-left transition hover:bg-white/4 ${selectedLayerIds.includes(layer.id) ? "bg-white/6" : ""} ${!layer.visible ? "opacity-50" : ""}`}
             >
               <div>
                 <p className="text-sm font-medium text-white">{layer.name}</p>
-                <p className="text-xs text-slate-500">{layer.type}</p>
+                <p className="text-xs text-slate-500">
+                  {layer.type}
+                  {layer.locked ? " • locked" : ""}
+                  {!layer.visible ? " • hidden" : ""}
+                </p>
               </div>
               <span
-                className={`h-2.5 w-2.5 rounded-full ${layer.type === "text" ? "bg-violet-400" : layer.type === "shape" ? "bg-cyan-400" : "bg-emerald-400"}`}
+                className={`h-2.5 w-2.5 rounded-full ${layer.type === "audio" ? "bg-emerald-400" : "bg-[#8792ff]"}`}
               />
             </button>
           ))}
@@ -138,7 +142,7 @@ export function TimelinePanel({
                 onSeek(clampTimelineValue((event.clientX - bounds.left) / zoom, 0, duration));
                 setDragState({ type: "playhead" });
               }}
-              className="relative block h-12 w-full border-b border-white/8 bg-[#0b0e14] text-left"
+              className="relative block h-11 w-full border-b border-white/8 bg-[#0b0e14] text-left"
             >
               {ticks.map((tick) => (
                 <div key={tick} className="absolute bottom-0 top-0" style={{ left: tick * zoom }}>
@@ -160,7 +164,7 @@ export function TimelinePanel({
             {layers.map((layer) => (
               <div
                 key={layer.id}
-                className="relative h-[76px] border-b border-white/6 bg-[linear-gradient(180deg,_rgba(255,255,255,0.015),_transparent)]"
+                className="relative h-[64px] border-b border-white/6 bg-[linear-gradient(180deg,_rgba(255,255,255,0.015),_transparent)]"
               >
                 {ticks.map((tick) => (
                   <div
@@ -192,6 +196,10 @@ export function TimelinePanel({
                         onSelectClip(clip.id);
                       }}
                       onPointerDown={(event) => {
+                        if (layer.locked) {
+                          return;
+                        }
+
                         const clipBounds = event.currentTarget.getBoundingClientRect();
                         const pointerOffset = event.clientX - clipBounds.left;
                         onSelectLayer(layer.id);
@@ -202,18 +210,18 @@ export function TimelinePanel({
                           clipOffset: pointerOffset / zoom,
                         });
                       }}
-                      className={`absolute top-3 h-14 rounded-2xl border border-white/12 px-4 text-left shadow-lg transition ${layer.type === "text" ? "bg-violet-500/80" : layer.type === "shape" ? "bg-cyan-500/80" : "bg-emerald-500/80"} ${selectedClipId === clip.id ? "ring-2 ring-violet-200/80" : ""}`}
+                      className={`absolute top-2 h-10 rounded-[14px] border border-white/12 px-3 text-left shadow-lg transition ${layer.type === "audio" ? "bg-emerald-500/75" : "bg-[#6f7bf6]/88"} ${selectedClipId === clip.id ? "ring-2 ring-violet-200/80" : ""} ${layer.locked ? "cursor-default opacity-70" : ""} ${!layer.visible ? "opacity-40" : ""}`}
                       style={{ left: clipLeft, width: clipWidth }}
                     >
                       <span className="block truncate text-sm font-medium text-white">
                         {clip.name}
                       </span>
-                      <span className="mt-1 block text-[11px] text-white/80">
+                      <span className="block text-[10px] text-white/75">
                         {clip.start.toFixed(2)}s - {clip.end.toFixed(2)}s
                       </span>
 
                       {audioAsset?.waveform ? (
-                        <span className="absolute inset-x-4 bottom-2 flex h-4 items-center gap-[2px] overflow-hidden">
+                        <span className="absolute inset-x-3 bottom-1 flex h-3 items-center gap-[2px] overflow-hidden">
                           {audioAsset.waveform.slice(0, 48).map((value, index) => (
                             <span
                               key={`${audioAsset.id}-${index}`}
@@ -228,6 +236,10 @@ export function TimelinePanel({
                         <span
                           key={keyframe.id}
                           onPointerDown={(event) => {
+                            if (layer.locked) {
+                              return;
+                            }
+
                             event.stopPropagation();
                             onSelectLayer(layer.id);
                             onSelectClip(clip.id);
@@ -243,6 +255,10 @@ export function TimelinePanel({
 
                       <span
                         onPointerDown={(event) => {
+                          if (layer.locked) {
+                            return;
+                          }
+
                           event.stopPropagation();
                           onSelectClip(clip.id);
                           setDragState({ type: "trim", clipId: clip.id, edge: "start" });
@@ -251,6 +267,10 @@ export function TimelinePanel({
                       />
                       <span
                         onPointerDown={(event) => {
+                          if (layer.locked) {
+                            return;
+                          }
+
                           event.stopPropagation();
                           onSelectClip(clip.id);
                           setDragState({ type: "trim", clipId: clip.id, edge: "end" });

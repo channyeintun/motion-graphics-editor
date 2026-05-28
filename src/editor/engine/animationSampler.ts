@@ -54,8 +54,14 @@ function sampleNumericProperty(
     return baseValue;
   }
 
-  if (currentTime <= keyframes[0].time) {
-    return keyframes[0].value as number;
+  const firstKeyframe = keyframes[0];
+
+  if (currentTime < firstKeyframe.time) {
+    return baseValue;
+  }
+
+  if (currentTime === firstKeyframe.time) {
+    return firstKeyframe.value as number;
   }
 
   const lastKeyframe = keyframes.at(-1);

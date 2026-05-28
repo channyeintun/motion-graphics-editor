@@ -52,14 +52,14 @@ export function PreviewViewport({
   };
 
   return (
-    <div className="relative flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(124,58,237,0.25),_transparent_35%),linear-gradient(180deg,_#141824,_#0b0e15)] p-6">
-      <div className="relative aspect-square w-full max-w-[720px] rounded-[36px] border-[14px] border-black bg-[#f3efe3] shadow-[0_40px_80px_rgba(0,0,0,0.55)]">
-        <div className="absolute inset-0 rounded-[22px] border border-black/10" />
+    <div className="relative flex h-full min-h-[66vh] items-center justify-center p-8 pt-14 md:p-10 md:pt-16 lg:p-12 lg:pt-18">
+      <div className="relative aspect-[16/9] w-full max-w-[1320px] rounded-[38px] border-[12px] border-black bg-[#f3efe3] shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
+        <div className="absolute inset-0 rounded-[26px] border border-black/10" />
         <Canvas
           orthographic
           camera={{ position: [0, 0, 20], zoom: 72 }}
           dpr={[1, 2]}
-          className="rounded-[22px]"
+          className="rounded-[26px]"
           onCreated={(state) => {
             onCanvasReady?.(state.gl.domElement);
           }}
@@ -94,6 +94,11 @@ export function PreviewViewport({
               onPointerDown={(event) => {
                 event.stopPropagation();
                 onSelect(object.id);
+
+                if (object.locked) {
+                  return;
+                }
+
                 setDragState({
                   id: object.id,
                   offsetX: object.x - event.point.x,
@@ -105,11 +110,12 @@ export function PreviewViewport({
         </Canvas>
 
         {selectedObject ? (
-          <div className="pointer-events-none absolute bottom-4 left-4 rounded-2xl border border-black/10 bg-white/75 px-3 py-2 text-xs text-slate-700 backdrop-blur">
+          <div className="pointer-events-none absolute bottom-4 left-4 rounded-2xl border border-black/10 bg-white/80 px-3 py-2 text-xs text-slate-700 backdrop-blur">
             <span className="font-semibold text-slate-900">{selectedObject.name}</span>
             <span className="ml-2">
               X {selectedObject.x.toFixed(2)} Y {selectedObject.y.toFixed(2)}
             </span>
+            {selectedObject.locked ? <span className="ml-2 text-slate-500">Locked</span> : null}
           </div>
         ) : null}
       </div>

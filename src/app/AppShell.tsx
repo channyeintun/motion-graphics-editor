@@ -1,15 +1,28 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Grid2x2,
+  Hand,
   Download,
   Eye,
   EyeOff,
   FileUp,
+  Image as ImageIcon,
   Lock,
   LockOpen,
+  Monitor,
+  MousePointer2,
+  Pause,
+  Play,
+  Redo2,
+  Repeat,
   Save,
+  Square,
+  Type,
+  Undo2,
+  Volume2,
 } from "lucide-react";
 import { sampleLayer } from "../editor/engine/animationSampler";
 import { toPreviewObject } from "../editor/model/preview";
@@ -28,6 +41,7 @@ export function AppShell() {
   const futureRef = useRef<Project[]>([]);
   const skipHistoryRef = useRef(false);
   const lastProjectRef = useRef<string>("");
+  const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const [timelineZoom, setTimelineZoom] = useState(140);
 
   const project = useEditorStore((state) => state.project);
@@ -68,18 +82,42 @@ export function AppShell() {
   );
 
   const previewObjects = useMemo(
-    () => sampledLayers.map(toPreviewObject).filter((object) => object !== null),
+    () => sampledLayers.map((layer) => toPreviewObject(layer)).filter((object) => object !== null),
     [sampledLayers],
   );
 
   const selectedId = selectedLayerIds[0] ?? null;
   const selectedLayer = project.layers.find((layer) => layer.id === selectedId) ?? null;
-  const selectedObject = previewObjects.find((object) => object.id === selectedId) ?? null;
+  const selectedClip = useMemo(
+    () =>
+      project.layers.flatMap((layer) => layer.clips).find((clip) => clip.id === selectedClipId) ??
+      null,
+    [project.layers, selectedClipId],
+  );
+  const selectedObject = useMemo(() => {
+    if (!selectedLayer) {
+      return null;
+    }
+
+    return toPreviewObject(sampleLayer(selectedLayer, currentTime), true);
+  }, [currentTime, selectedLayer]);
+  const selectionLocked = selectedLayer?.locked ?? false;
 
   playbackTimeRef.current = currentTime;
 
+  const syncHistoryState = useCallback(() => {
+    setHistoryState({
+      canUndo: historyRef.current.length > 0,
+      canRedo: futureRef.current.length > 0,
+    });
+  }, []);
+
   const saveProject = useEffectEvent((nextProject: Project) => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextProject));
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextProject));
+    } catch (error) {
+      console.warn("Failed to persist motion graphics project.", error);
+    }
   });
 
   useEffect(() => {
@@ -97,6 +135,7 @@ export function AppShell() {
 
     if (!lastProjectRef.current) {
       lastProjectRef.current = serializedProject;
+      syncHistoryState();
       return;
     }
 
@@ -107,13 +146,15 @@ export function AppShell() {
     if (skipHistoryRef.current) {
       skipHistoryRef.current = false;
       lastProjectRef.current = serializedProject;
+      syncHistoryState();
       return;
     }
 
     historyRef.current.push(JSON.parse(lastProjectRef.current) as Project);
     futureRef.current = [];
     lastProjectRef.current = serializedProject;
-  }, [project]);
+    syncHistoryState();
+  }, [project, syncHistoryState]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -152,6 +193,7 @@ export function AppShell() {
 
   useEffect(() => {
     const nextMap = new Map<string, HTMLAudioElement>();
+    const previousMap = audioElementsRef.current;
 
     for (const asset of project.assets) {
       if (asset.type !== "audio") {
@@ -162,6 +204,15 @@ export function AppShell() {
       const audio = existing ?? new Audio(asset.src);
       audio.src = asset.src;
       nextMap.set(asset.id, audio);
+    }
+
+    for (const [assetId, audio] of previousMap) {
+      if (nextMap.has(assetId)) {
+        continue;
+      }
+
+      audio.pause();
+      audio.src = "";
     }
 
     audioElementsRef.current = nextMap;
@@ -180,7 +231,7 @@ export function AppShell() {
         continue;
       }
 
-      const insideClip = currentTime >= clip.start && currentTime <= clip.end;
+      const insideClip = layer.visible && currentTime >= clip.start && currentTime <= clip.end;
 
       if (!insideClip) {
         audio.pause();
@@ -221,14 +272,17 @@ export function AppShell() {
       return;
     }
 
-    const src = URL.createObjectURL(file);
-    const buffer = await file.arrayBuffer();
     const audioContext = new AudioContext();
-    const decoded = await audioContext.decodeAudioData(buffer.slice(0));
-    const waveform = createWaveform(decoded.getChannelData(0));
-    addAudioLayer(file.name.replace(/\.[^.]+$/, ""), src, waveform, decoded.duration);
-    await audioContext.close();
-    event.target.value = "";
+
+    try {
+      const [src, buffer] = await Promise.all([readFileAsDataUrl(file), file.arrayBuffer()]);
+      const decoded = await audioContext.decodeAudioData(buffer.slice(0));
+      const waveform = createWaveform(decoded.getChannelData(0));
+      addAudioLayer(file.name.replace(/\.[^.]+$/, ""), src, waveform, decoded.duration);
+    } finally {
+      await audioContext.close();
+      event.target.value = "";
+    }
   };
 
   const handleExport = () => {
@@ -261,6 +315,7 @@ export function AppShell() {
       return;
     }
 
+    const previousLoopPlayback = loopPlayback;
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(canvas.captureStream(project.fps), {
       mimeType: "video/webm",
@@ -281,15 +336,23 @@ export function AppShell() {
     };
 
     seek(0);
-    setPlaying(true);
-    recorder.start();
-    window.setTimeout(
-      () => {
-        setPlaying(false);
-        recorder.stop();
-      },
-      project.duration * 1000 + 150,
-    );
+    setLoopPlayback(false);
+    window.requestAnimationFrame(() => {
+      recorder.start();
+      setPlaying(true);
+      window.setTimeout(
+        () => {
+          setPlaying(false);
+          setLoopPlayback(previousLoopPlayback);
+          seek(project.duration);
+
+          if (recorder.state !== "inactive") {
+            recorder.stop();
+          }
+        },
+        project.duration * 1000 + Math.ceil(1000 / project.fps),
+      );
+    });
   };
 
   const undoProject = useCallback(() => {
@@ -301,8 +364,9 @@ export function AppShell() {
 
     futureRef.current.push(JSON.parse(JSON.stringify(project)) as Project);
     skipHistoryRef.current = true;
+    syncHistoryState();
     replaceProject(previousProject);
-  }, [project, replaceProject]);
+  }, [project, replaceProject, syncHistoryState]);
 
   const redoProject = useCallback(() => {
     const nextProject = futureRef.current.pop();
@@ -313,11 +377,12 @@ export function AppShell() {
 
     historyRef.current.push(JSON.parse(JSON.stringify(project)) as Project);
     skipHistoryRef.current = true;
+    syncHistoryState();
     replaceProject(nextProject);
-  }, [project, replaceProject]);
+  }, [project, replaceProject, syncHistoryState]);
 
-  const canUndo = historyRef.current.length > 0;
-  const canRedo = futureRef.current.length > 0;
+  const canUndo = historyState.canUndo;
+  const canRedo = historyState.canRedo;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -353,7 +418,7 @@ export function AppShell() {
   }, [deleteKeyframe, isPlaying, redoProject, selectedKeyframeId, setPlaying, undoProject]);
 
   return (
-    <main className="min-h-screen bg-[#0a0b10] text-slate-100">
+    <main className="min-h-screen bg-[linear-gradient(180deg,_#ddd9d2_0%,_#b8b2ab_42%,_#0d0f14_100%)] text-slate-100">
       <input
         ref={fileInputRef}
         type="file"
@@ -369,359 +434,303 @@ export function AppShell() {
         onChange={handleAudioImport}
       />
 
-      <div className="flex min-h-screen flex-col gap-3 p-3 md:p-4">
-        <section className="grid min-h-[64vh] flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-[#0f1118] shadow-2xl shadow-black/30">
-            <div className="absolute left-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/45 p-2 backdrop-blur">
-              <button
-                type="button"
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
-              >
-                Select
-              </button>
-              <button
-                type="button"
-                onClick={addTextLayer}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
-              >
-                Text
-              </button>
-              <button
-                type="button"
-                onClick={addShapeLayer}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
-              >
-                Shape
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-500 transition"
-              >
-                Image
-              </button>
-              <button
-                type="button"
-                onClick={() => audioInputRef.current?.click()}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium tracking-wide text-slate-200 transition hover:bg-white/10"
-              >
-                Audio
-              </button>
-            </div>
+      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-3 p-3 md:p-4">
+        <section className="relative min-h-[66vh] overflow-hidden rounded-[36px] border border-black/12 bg-[linear-gradient(180deg,_rgba(255,255,255,0.26),_rgba(255,255,255,0.02)_20%,_rgba(0,0,0,0.2)_100%)] shadow-[0_30px_110px_rgba(0,0,0,0.22)]">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,_rgba(255,255,255,0.28),_transparent)]" />
 
-            <div className="absolute right-4 top-4 z-20 flex items-center gap-2 rounded-2xl border border-white/10 bg-black/45 px-3 py-2 text-xs text-slate-300 backdrop-blur">
-              <span>
-                {project.width} x {project.height} • {project.fps} FPS • {currentTime.toFixed(2)}s
-              </span>
-              <button
-                type="button"
-                onClick={handleExport}
-                className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:bg-white/10"
-                title="Export project JSON"
-              >
-                <Download className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded-xl border border-white/10 bg-white/5 p-2 transition hover:bg-white/10"
-                title="Import project JSON"
-              >
-                <FileUp className="h-3.5 w-3.5" />
-              </button>
+          <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
+            <div className="flex items-center gap-1 rounded-[18px] border border-black/10 bg-black/55 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+              <ChromeIconButton icon={Hand} title="Pan viewport" />
+              <ChromeIconButton icon={Monitor} title="Viewport display" />
+              <ChromeIconButton icon={Grid2x2} title="Grid guides" />
             </div>
-
-            <PreviewViewport
-              objects={previewObjects}
-              selectedId={selectedId}
-              onSelect={selectLayer}
-              onMove={moveLayerObject}
-              onCanvasReady={(canvas) => {
-                previewCanvasRef.current = canvas;
-              }}
-            />
           </div>
 
-          <aside className="rounded-[28px] border border-white/10 bg-[#11141d] p-4 shadow-2xl shadow-black/20">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.32em] text-slate-400">Inspector</p>
-                <h2 className="mt-2 text-lg font-semibold text-white">
-                  {selectedObject?.name ?? project.name}
-                </h2>
-              </div>
-              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-300">
-                {selectedObject ? "Selected" : "Autosave"}
+          <div className="absolute right-4 top-4 z-20 flex items-start gap-3">
+            <div className="flex items-center gap-2 rounded-[20px] border border-black/10 bg-black/55 px-3 py-2 text-[11px] font-medium text-slate-200 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+              <span className="uppercase tracking-[0.28em] text-slate-400">Canvas</span>
+              <span>
+                {project.width} x {project.height}
               </span>
-            </div>
-
-            <div className="mt-4 space-y-4 text-sm text-slate-300">
-              <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Project</p>
-                  <Save className="h-4 w-4 text-emerald-300" />
-                </div>
-                <div className="mt-3 space-y-3">
-                  <DetailRow label="Storage" value="Local" />
-                  <DetailRow label="Duration" value={`${project.duration}s`} />
-                  <DetailRow label="Layers" value={`${project.layers.length}`} />
-                  <DetailRow label="Playhead" value={`${currentTime.toFixed(2)}s`} />
-                  <DetailRow label="Playback" value={isPlaying ? "Playing" : "Paused"} />
-                  <DetailRow
-                    label="Selected"
-                    value={`${selectedLayerIds.length} layer${selectedLayerIds.length === 1 ? "" : "s"}`}
-                  />
-                </div>
+              <span className="text-slate-500">•</span>
+              <span>{project.fps} FPS</span>
+              <span className="text-slate-500">•</span>
+              <span>{currentTime.toFixed(2)}s</span>
+              <div className="ml-2 flex items-center gap-1 border-l border-white/10 pl-2">
+                <ChromeIconButton
+                  icon={Download}
+                  title="Export project JSON"
+                  onClick={handleExport}
+                />
+                <ChromeIconButton
+                  icon={FileUp}
+                  title="Import project JSON"
+                  onClick={() => fileInputRef.current?.click()}
+                />
               </div>
+            </div>
+            <ViewportGizmo />
+          </div>
 
-              <div className="rounded-2xl border border-white/8 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Selection</p>
-                {selectedObject ? (
-                  <div className="mt-3 space-y-3 text-sm text-slate-300">
-                    <label className="block space-y-2">
-                      <span className="text-xs uppercase tracking-[0.24em] text-slate-500">
-                        Layer Name
-                      </span>
-                      <input
-                        value={selectedLayer?.name ?? ""}
-                        onChange={(event) =>
-                          selectedId && renameLayer(selectedId, event.target.value)
-                        }
-                        className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-                      />
-                    </label>
-                    <DetailRow label="Type" value={selectedObject.type} />
-                    <DetailRow
-                      label="Position"
-                      value={`${selectedObject.x.toFixed(2)}, ${selectedObject.y.toFixed(2)}`}
-                    />
-                    <DetailRow
-                      label="Opacity"
-                      value={`${Math.round(selectedObject.opacity * 100)}%`}
-                    />
-                    <DetailRow label="Clip" value={selectedClipId ?? "None"} />
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      {(["x", "y", "scaleX", "scaleY", "rotation", "opacity"] as const).map(
-                        (property) => (
-                          <button
-                            key={property}
-                            type="button"
-                            onClick={() => selectedId && addKeyframe(selectedId, property)}
-                            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200 transition hover:bg-black/40"
-                          >
-                            Keyframe {property}
-                          </button>
-                        ),
-                      )}
-                    </div>
-                    {selectedKeyframeId ? (
-                      <button
-                        type="button"
-                        onClick={() => deleteKeyframe(selectedKeyframeId)}
-                        className="w-full rounded-xl border border-rose-400/20 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-200 transition hover:bg-rose-500/20"
-                      >
-                        Delete Selected Keyframe
-                      </button>
-                    ) : null}
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <label className="space-y-1 text-xs text-slate-400">
-                        X
-                        <input
-                          type="number"
-                          value={selectedLayer?.object.transform.x ?? 0}
-                          onChange={(event) =>
-                            selectedId &&
-                            selectedLayer &&
-                            updateLayerPosition(
-                              selectedId,
-                              Number(event.target.value),
-                              selectedLayer.object.transform.y,
-                            )
-                          }
-                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-slate-400">
-                        Y
-                        <input
-                          type="number"
-                          value={selectedLayer?.object.transform.y ?? 0}
-                          onChange={(event) =>
-                            selectedId &&
-                            selectedLayer &&
-                            updateLayerPosition(
-                              selectedId,
-                              selectedLayer.object.transform.x,
-                              Number(event.target.value),
-                            )
-                          }
-                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-slate-400">
-                        Opacity
-                        <input
-                          type="number"
-                          min="0"
-                          max="1"
-                          step="0.05"
-                          value={selectedLayer?.object.opacity ?? 1}
-                          onChange={(event) =>
-                            selectedId && updateLayerOpacity(selectedId, Number(event.target.value))
-                          }
-                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-                        />
-                      </label>
-                      <label className="space-y-1 text-xs text-slate-400">
-                        Color
-                        <input
-                          type="color"
-                          value={selectedLayer?.object.style.color ?? "#ffffff"}
-                          onChange={(event) =>
-                            selectedId && updateLayerColor(selectedId, event.target.value)
-                          }
-                          className="h-10 w-full rounded-xl border border-white/10 bg-black/30 px-2 py-1"
-                        />
-                      </label>
-                    </div>
-                    {selectedLayer?.type === "text" &&
-                    selectedLayer.object.content &&
-                    "value" in selectedLayer.object.content ? (
-                      <label className="block space-y-2">
-                        <span className="text-xs uppercase tracking-[0.24em] text-slate-500">
-                          Text
-                        </span>
-                        <textarea
-                          value={selectedLayer.object.content.value}
-                          onChange={(event) =>
-                            selectedId && updateTextLayer(selectedId, event.target.value)
-                          }
-                          rows={3}
-                          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-                        />
-                      </label>
-                    ) : null}
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => selectedId && toggleLayerVisibility(selectedId)}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
-                      >
-                        {selectedLayer?.visible ? (
-                          <Eye className="h-3.5 w-3.5" />
-                        ) : (
-                          <EyeOff className="h-3.5 w-3.5" />
-                        )}
-                        {selectedLayer?.visible ? "Visible" : "Hidden"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => selectedId && toggleLayerLock(selectedId)}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
-                      >
-                        {selectedLayer?.locked ? (
-                          <Lock className="h-3.5 w-3.5" />
-                        ) : (
-                          <LockOpen className="h-3.5 w-3.5" />
-                        )}
-                        {selectedLayer?.locked ? "Locked" : "Unlocked"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => selectedId && reorderLayer(selectedId, "up")}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                        Move Up
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => selectedId && reorderLayer(selectedId, "down")}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs font-medium text-slate-200"
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                        Move Down
-                      </button>
-                    </div>
+          <PreviewViewport
+            objects={previewObjects}
+            selectedId={selectedId}
+            onSelect={selectLayer}
+            onMove={moveLayerObject}
+            onCanvasReady={(canvas) => {
+              previewCanvasRef.current = canvas;
+            }}
+          />
+
+          <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2">
+            <div className="flex items-center gap-1 rounded-[20px] border border-black/10 bg-black/75 p-1.5 text-slate-100 shadow-[0_20px_40px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+              <ChromeIconButton icon={MousePointer2} title="Select tool" active />
+              <div className="mx-1 h-6 w-px bg-white/10" />
+              <ChromeIconButton icon={Square} title="Add shape layer" onClick={addShapeLayer} />
+              <ChromeIconButton icon={Type} title="Add text layer" onClick={addTextLayer} />
+              <ChromeIconButton icon={ImageIcon} title="Image import coming soon" disabled />
+              <ChromeIconButton
+                icon={Volume2}
+                title="Import audio layer"
+                onClick={() => audioInputRef.current?.click()}
+              />
+            </div>
+          </div>
+
+          {selectedLayer ? (
+            <div className="absolute bottom-5 right-5 z-20 hidden w-[360px] lg:block">
+              <div className="rounded-[24px] border border-white/10 bg-[#101218]/88 p-4 text-sm text-slate-200 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
+                      Selection
+                    </p>
+                    <h2 className="mt-1 truncate text-base font-semibold text-white">
+                      {selectedObject?.name ?? selectedLayer.name}
+                    </h2>
+                    <p className="text-xs text-slate-400">
+                      {(selectedObject?.type ?? selectedLayer.type).toUpperCase()} •{" "}
+                      {selectedClip
+                        ? `${selectedClip.start.toFixed(2)}s - ${selectedClip.end.toFixed(2)}s`
+                        : "No clip"}
+                    </p>
                   </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-400">
-                    Select an object in the preview or timeline to inspect it.
-                  </p>
-                )}
+                  <div className="flex items-center gap-1">
+                    <ChromeIconButton
+                      icon={selectedLayer.visible ? Eye : EyeOff}
+                      title={selectedLayer.visible ? "Hide layer" : "Show layer"}
+                      onClick={() => selectedId && toggleLayerVisibility(selectedId)}
+                    />
+                    <ChromeIconButton
+                      icon={selectedLayer.locked ? Lock : LockOpen}
+                      title={selectedLayer.locked ? "Unlock layer" : "Lock layer"}
+                      onClick={() => selectedId && toggleLayerLock(selectedId)}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <MiniField label="Name">
+                    <input
+                      value={selectedLayer.name}
+                      onChange={(event) =>
+                        selectedId && renameLayer(selectedId, event.target.value)
+                      }
+                      disabled={selectionLocked}
+                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </MiniField>
+                  <MiniField label="Opacity">
+                    <input
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={selectedLayer.object.opacity}
+                      onChange={(event) =>
+                        selectedId && updateLayerOpacity(selectedId, Number(event.target.value))
+                      }
+                      disabled={selectionLocked}
+                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </MiniField>
+                  <MiniField label="X">
+                    <input
+                      type="number"
+                      value={selectedLayer.object.transform.x}
+                      onChange={(event) =>
+                        selectedId &&
+                        updateLayerPosition(
+                          selectedId,
+                          Number(event.target.value),
+                          selectedLayer.object.transform.y,
+                        )
+                      }
+                      disabled={selectionLocked}
+                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </MiniField>
+                  <MiniField label="Y">
+                    <input
+                      type="number"
+                      value={selectedLayer.object.transform.y}
+                      onChange={(event) =>
+                        selectedId &&
+                        updateLayerPosition(
+                          selectedId,
+                          selectedLayer.object.transform.x,
+                          Number(event.target.value),
+                        )
+                      }
+                      disabled={selectionLocked}
+                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </MiniField>
+                  <MiniField label="Color">
+                    <input
+                      type="color"
+                      value={selectedLayer.object.style.color}
+                      onChange={(event) =>
+                        selectedId && updateLayerColor(selectedId, event.target.value)
+                      }
+                      disabled={selectionLocked}
+                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </MiniField>
+                  <MiniField label="Stack">
+                    <div className="flex items-center gap-2">
+                      <ChromeIconButton
+                        icon={ArrowUp}
+                        title="Move layer up"
+                        onClick={() => selectedId && reorderLayer(selectedId, "up")}
+                        disabled={selectionLocked}
+                      />
+                      <ChromeIconButton
+                        icon={ArrowDown}
+                        title="Move layer down"
+                        onClick={() => selectedId && reorderLayer(selectedId, "down")}
+                        disabled={selectionLocked}
+                      />
+                    </div>
+                  </MiniField>
+                </div>
+
+                {selectedLayer.type === "text" &&
+                selectedLayer.object.content &&
+                "value" in selectedLayer.object.content ? (
+                  <MiniField label="Text" className="mt-3">
+                    <textarea
+                      value={selectedLayer.object.content.value}
+                      onChange={(event) =>
+                        selectedId && updateTextLayer(selectedId, event.target.value)
+                      }
+                      rows={2}
+                      disabled={selectionLocked}
+                      className="w-full rounded-xl border border-white/8 bg-black/30 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    />
+                  </MiniField>
+                ) : null}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(["x", "y", "scaleX", "scaleY", "rotation", "opacity"] as const).map(
+                    (property) => (
+                      <button
+                        key={property}
+                        type="button"
+                        onClick={() => selectedId && addKeyframe(selectedId, property)}
+                        disabled={selectionLocked}
+                        className="rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        + {property}
+                      </button>
+                    ),
+                  )}
+                  {selectedKeyframeId ? (
+                    <button
+                      type="button"
+                      onClick={() => deleteKeyframe(selectedKeyframeId)}
+                      disabled={selectionLocked}
+                      className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Remove keyframe
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </aside>
+          ) : null}
         </section>
 
-        <section className="rounded-[28px] border border-white/10 bg-[#0f1219] p-4 shadow-2xl shadow-black/30">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.32em] text-slate-500">Timeline</p>
-              <h2 className="mt-2 text-lg font-semibold text-white">Sequence</h2>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-300">
-              <button
-                type="button"
+        <section className="overflow-hidden rounded-[34px] border border-white/8 bg-[#13161b] shadow-[0_28px_80px_rgba(0,0,0,0.34)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <TransportButton
+                icon={isPlaying ? Pause : Play}
+                label={isPlaying ? "Pause" : "Play"}
+                title={isPlaying ? "Pause timeline" : "Play timeline"}
                 onClick={() => setPlaying(!isPlaying)}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-              >
-                {isPlaying ? "Pause" : "Play"}
-              </button>
-              <button
-                type="button"
+                active={isPlaying}
+              />
+              <TransportButton
+                icon={Repeat}
+                label={loopPlayback ? "Loop On" : "Loop Off"}
+                title="Toggle timeline looping"
                 onClick={() => setLoopPlayback(!loopPlayback)}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-              >
-                {loopPlayback ? "Loop On" : "Loop Off"}
-              </button>
-              <button
-                type="button"
+                active={loopPlayback}
+              />
+              <TransportButton
+                icon={Undo2}
+                label="Undo"
+                title="Undo"
                 onClick={undoProject}
                 disabled={!canUndo}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Undo
-              </button>
-              <button
-                type="button"
+              />
+              <TransportButton
+                icon={Redo2}
+                label="Redo"
+                title="Redo"
                 onClick={redoProject}
                 disabled={!canRedo}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Redo
-              </button>
-              <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                Zoom
-                <input
-                  type="range"
-                  min="80"
-                  max="240"
-                  step="10"
-                  value={timelineZoom}
-                  onChange={(event) => setTimelineZoom(Number(event.target.value))}
-                />
-              </label>
-              <button
-                type="button"
+              />
+            </div>
+
+            <label className="inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
+              <span className="uppercase tracking-[0.26em] text-slate-500">Zoom</span>
+              <input
+                type="range"
+                min="80"
+                max="240"
+                step="10"
+                value={timelineZoom}
+                onChange={(event) => setTimelineZoom(Number(event.target.value))}
+                className="w-32 accent-[#6f7bf6]"
+              />
+            </label>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <TransportButton
+                icon={Download}
+                label="JSON"
+                title="Export project JSON"
                 onClick={handleExport}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-              >
-                Export JSON
-              </button>
-              <button
-                type="button"
+              />
+              <TransportButton
+                icon={Save}
+                label="PNG"
+                title="Export preview PNG"
                 onClick={handleExportPng}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-              >
-                PNG
-              </button>
-              <button
-                type="button"
+              />
+              <TransportButton
+                icon={Monitor}
+                label="WebM"
+                title="Export preview WebM"
                 onClick={handleExportWebm}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2"
-              >
-                WebM
-              </button>
+              />
+              <TimelineMetaPill label="Start" value={`${(selectedClip?.start ?? 0).toFixed(2)}s`} />
+              <TimelineMetaPill
+                label="End"
+                value={`${(selectedClip?.end ?? project.duration).toFixed(2)}s`}
+              />
             </div>
           </div>
 
@@ -768,11 +777,120 @@ function createWaveform(channelData: Float32Array) {
   return peaks;
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Failed to read audio asset."));
+    };
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Failed to read audio asset."));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function ChromeIconButton({
+  icon: Icon,
+  title,
+  onClick,
+  active = false,
+  disabled = false,
+}: {
+  icon: typeof MousePointer2;
+  title: string;
+  onClick?: () => void;
+  active?: boolean;
+  disabled?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/20 px-3 py-2">
-      <span className="text-xs uppercase tracking-[0.24em] text-slate-500">{label}</span>
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex h-10 w-10 items-center justify-center rounded-[14px] border text-slate-100 transition ${active ? "border-[#8e99ff]/60 bg-[#6f7bf6] shadow-[0_10px_24px_rgba(111,123,246,0.34)]" : "border-white/10 bg-white/6 hover:bg-white/10"} disabled:cursor-not-allowed disabled:opacity-40`}
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
+function TransportButton({
+  icon: Icon,
+  label,
+  title,
+  onClick,
+  active = false,
+  disabled = false,
+}: {
+  icon: typeof MousePointer2;
+  label: string;
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-10 items-center gap-2 rounded-full border px-3 text-xs font-medium transition ${active ? "border-[#8e99ff]/50 bg-[#6f7bf6]/22 text-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/9"} disabled:cursor-not-allowed disabled:opacity-40`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function TimelineMetaPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="inline-flex h-10 items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 text-xs text-slate-200">
+      <span className="uppercase tracking-[0.22em] text-slate-500">{label}</span>
       <span className="font-medium text-white">{value}</span>
+    </div>
+  );
+}
+
+function MiniField({
+  label,
+  className = "",
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className={`block space-y-1 ${className}`}>
+      <span className="text-[10px] uppercase tracking-[0.26em] text-slate-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function ViewportGizmo() {
+  return (
+    <div className="flex h-20 w-20 items-center justify-center rounded-full border border-black/20 bg-[#121318]/92 shadow-[0_20px_40px_rgba(0,0,0,0.32)] backdrop-blur">
+      <div className="relative h-11 w-11">
+        <span className="absolute left-1/2 top-0 h-4 w-1 -translate-x-1/2 rounded-full bg-[#7ef2ad]" />
+        <span className="absolute bottom-0 left-1/2 h-4 w-1 -translate-x-1/2 rounded-full bg-[#4ade80]" />
+        <span className="absolute left-0 top-1/2 h-1 w-4 -translate-y-1/2 rounded-full bg-[#f43f5e]" />
+        <span className="absolute right-0 top-1/2 h-1 w-4 -translate-y-1/2 rounded-full bg-[#fb7185]" />
+        <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#6aa8ff]/60 bg-[#6aa8ff]" />
+        <span className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-[#86efac]" />
+        <span className="absolute bottom-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-[#4ade80]" />
+        <span className="absolute left-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#e11d48]" />
+        <span className="absolute right-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#fb7185]" />
+      </div>
     </div>
   );
 }
