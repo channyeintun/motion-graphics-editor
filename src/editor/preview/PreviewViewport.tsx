@@ -185,8 +185,7 @@ export function PreviewViewport({
         <SceneBackdrops sceneState={sceneState} />
         <div className="absolute inset-0 rounded-[26px] border border-black/10" />
         <Canvas
-          orthographic
-          camera={{ position: [0, 0, 20], zoom: 72 }}
+          camera={{ position: [0, 0, 12], fov: 50 }}
           gl={{ alpha: true, antialias: true }}
           dpr={[1, 2]}
           className="rounded-[26px]"
@@ -251,11 +250,13 @@ export function PreviewViewport({
                     key={`outgoing-${object.id}`}
                     object={object}
                     selected={false}
-                    opacityMultiplier={getSceneFrameVisual(
-                      "outgoing",
-                      sceneState.transitionPreset,
-                      sceneState.transitionProgress,
-                    ).opacity}
+                    opacityMultiplier={
+                      getSceneFrameVisual(
+                        "outgoing",
+                        sceneState.transitionPreset,
+                        sceneState.transitionProgress,
+                      ).opacity
+                    }
                   />
                 ))}
               </SceneFrame>
@@ -271,11 +272,13 @@ export function PreviewViewport({
                   key={object.id}
                   object={object}
                   selected={object.id === selectedId}
-                  opacityMultiplier={getSceneFrameVisual(
-                    "incoming",
-                    sceneState.transitionPreset,
-                    sceneState.transitionProgress,
-                  ).opacity}
+                  opacityMultiplier={
+                    getSceneFrameVisual(
+                      "incoming",
+                      sceneState.transitionPreset,
+                      sceneState.transitionProgress,
+                    ).opacity
+                  }
                   onPointerDown={(event) => {
                     event.stopPropagation();
                     onSelect(object.id);
@@ -302,7 +305,14 @@ export function PreviewViewport({
                 object={selectedObject}
                 transformMode={transformMode}
                 viewportOffset={viewportOffset}
-                onStartScaleDrag={(handle, startPoint, startScaleX, startScaleY, objectWidth, objectHeight) => {
+                onStartScaleDrag={(
+                  handle,
+                  startPoint,
+                  startScaleX,
+                  startScaleY,
+                  objectWidth,
+                  objectHeight,
+                ) => {
                   setDragState({
                     type: "scale",
                     id: selectedObject.id,
@@ -346,11 +356,19 @@ export function PreviewViewport({
 }
 
 function ResponsiveCamera() {
-  const camera = useThree((state) => state.camera as THREE.OrthographicCamera);
+  const camera = useThree((state) => state.camera as THREE.PerspectiveCamera);
   const size = useThree((state) => state.size);
 
   useLayoutEffect(() => {
-    camera.zoom = Math.min(size.width / FRAME_WIDTH, size.height / FRAME_HEIGHT);
+    camera.aspect = size.width / size.height;
+
+    const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+    const fitHeightDistance = FRAME_HEIGHT / 2 / Math.tan(verticalFov / 2);
+    const fitWidthDistance = FRAME_WIDTH / 2 / Math.tan(horizontalFov / 2);
+
+    camera.position.set(0, 0, Math.max(fitHeightDistance, fitWidthDistance) + 1.5);
+    camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
   }, [camera, size.height, size.width]);
 
@@ -391,7 +409,11 @@ function SceneBackdropLayer({
     return null;
   }
 
-  const visual = getSceneFrameVisual(role, sceneState.transitionPreset, sceneState.transitionProgress);
+  const visual = getSceneFrameVisual(
+    role,
+    sceneState.transitionPreset,
+    sceneState.transitionProgress,
+  );
   const motion = getBackgroundMotion(scene.background.animation, localTime);
 
   return (
@@ -617,7 +639,9 @@ type PreviewContentProps = {
 
 function PreviewNode({ object, selected, opacityMultiplier = 1, onPointerDown }: PreviewNodeProps) {
   const transformMatrix = useMemo(() => {
-    const rotationMatrix = new THREE.Matrix4().makeRotationZ(object.rotation);
+    const rotationXMatrix = new THREE.Matrix4().makeRotationX(object.rotationX);
+    const rotationYMatrix = new THREE.Matrix4().makeRotationY(object.rotationY);
+    const rotationZMatrix = new THREE.Matrix4().makeRotationZ(object.rotation);
     const skewMatrix = new THREE.Matrix4().set(
       1,
       Math.tan(object.skewY),
@@ -636,26 +660,55 @@ function PreviewNode({ object, selected, opacityMultiplier = 1, onPointerDown }:
       0,
       1,
     );
-    const scaleMatrix = new THREE.Matrix4().makeScale(object.scaleX, object.scaleY, 1);
+    const scaleMatrix = new THREE.Matrix4().makeScale(object.scaleX, object.scaleY, object.scaleZ);
 
-    return rotationMatrix.multiply(skewMatrix).multiply(scaleMatrix);
-  }, [object.rotation, object.scaleX, object.scaleY, object.skewX, object.skewY]);
+    return rotationZMatrix
+      .multiply(rotationYMatrix)
+      .multiply(rotationXMatrix)
+      .multiply(skewMatrix)
+      .multiply(scaleMatrix);
+  }, [
+    object.rotation,
+    object.rotationX,
+    object.rotationY,
+    object.scaleX,
+    object.scaleY,
+    object.scaleZ,
+    object.skewX,
+    object.skewY,
+  ]);
 
   return (
-    <group position={[object.x, object.y, object.type === "model" ? 0.65 : 0.5]}>
+    <group position={[object.x, object.y, object.z + (object.type === "model" ? 0.65 : 0.5)]}>
       <group matrixAutoUpdate={false} matrix={transformMatrix}>
         {selected ? <SelectionFrame object={object} opacityMultiplier={opacityMultiplier} /> : null}
         {object.type === "text" ? (
-          <PreviewText object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
+          <PreviewText
+            object={object}
+            opacityMultiplier={opacityMultiplier}
+            onPointerDown={onPointerDown}
+          />
         ) : null}
         {object.type === "shape" ? (
-          <PreviewShape object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
+          <PreviewShape
+            object={object}
+            opacityMultiplier={opacityMultiplier}
+            onPointerDown={onPointerDown}
+          />
         ) : null}
         {object.type === "image" ? (
-          <PreviewImage object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
+          <PreviewImage
+            object={object}
+            opacityMultiplier={opacityMultiplier}
+            onPointerDown={onPointerDown}
+          />
         ) : null}
         {object.type === "model" ? (
-          <PreviewModel object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
+          <PreviewModel
+            object={object}
+            opacityMultiplier={opacityMultiplier}
+            onPointerDown={onPointerDown}
+          />
         ) : null}
       </group>
     </group>
@@ -865,7 +918,12 @@ function SelectionFrame({
     return (
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[bounds.width, bounds.height, bounds.depth ?? 1.3]} />
-        <meshBasicMaterial color="#7c3aed" transparent opacity={0.3 * opacityMultiplier} wireframe />
+        <meshBasicMaterial
+          color="#7c3aed"
+          transparent
+          opacity={0.3 * opacityMultiplier}
+          wireframe
+        />
       </mesh>
     );
   }
@@ -963,7 +1021,8 @@ function getSceneFrameVisual(
 
   if (preset === "slideFromLeft") {
     return {
-      x: role === "incoming" ? -(1 - safeProgress) * FRAME_WIDTH : safeProgress * FRAME_WIDTH * 0.65,
+      x:
+        role === "incoming" ? -(1 - safeProgress) * FRAME_WIDTH : safeProgress * FRAME_WIDTH * 0.65,
       y: 0,
       scale: 1,
       opacity: 1,
@@ -972,7 +1031,8 @@ function getSceneFrameVisual(
 
   if (preset === "slideFromRight") {
     return {
-      x: role === "incoming" ? (1 - safeProgress) * FRAME_WIDTH : -safeProgress * FRAME_WIDTH * 0.65,
+      x:
+        role === "incoming" ? (1 - safeProgress) * FRAME_WIDTH : -safeProgress * FRAME_WIDTH * 0.65,
       y: 0,
       scale: 1,
       opacity: 1,
@@ -982,7 +1042,10 @@ function getSceneFrameVisual(
   if (preset === "slideFromTop") {
     return {
       x: 0,
-      y: role === "incoming" ? (1 - safeProgress) * FRAME_HEIGHT : -safeProgress * FRAME_HEIGHT * 0.65,
+      y:
+        role === "incoming"
+          ? (1 - safeProgress) * FRAME_HEIGHT
+          : -safeProgress * FRAME_HEIGHT * 0.65,
       scale: 1,
       opacity: 1,
     };
@@ -991,7 +1054,10 @@ function getSceneFrameVisual(
   if (preset === "slideFromBottom") {
     return {
       x: 0,
-      y: role === "incoming" ? -(1 - safeProgress) * FRAME_HEIGHT : safeProgress * FRAME_HEIGHT * 0.65,
+      y:
+        role === "incoming"
+          ? -(1 - safeProgress) * FRAME_HEIGHT
+          : safeProgress * FRAME_HEIGHT * 0.65,
       scale: 1,
       opacity: 1,
     };
@@ -1069,12 +1135,13 @@ function mixHexColors(first: string, second: string, amount: number) {
 
 function parseHexColor(value: string) {
   const normalized = value.replace("#", "");
-  const hex = normalized.length === 3
-    ? normalized
-        .split("")
-        .map((part) => `${part}${part}`)
-        .join("")
-    : normalized.padEnd(6, "0").slice(0, 6);
+  const hex =
+    normalized.length === 3
+      ? normalized
+          .split("")
+          .map((part) => `${part}${part}`)
+          .join("")
+      : normalized.padEnd(6, "0").slice(0, 6);
 
   return {
     r: Number.parseInt(hex.slice(0, 2), 16),
