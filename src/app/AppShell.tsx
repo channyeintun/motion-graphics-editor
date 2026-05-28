@@ -49,7 +49,7 @@ import {
   PROJECT_PACKAGE_EXTENSION,
 } from "../editor/assets/projectPackage";
 import { sampleLayer } from "../editor/engine/animationSampler";
-import { sampleSceneState } from "../editor/engine/sceneSampler";
+import { sampleSceneState, type SampledSceneState } from "../editor/engine/sceneSampler";
 import { toPreviewObject } from "../editor/model/preview";
 import type {
   BackgroundAnimationPreset,
@@ -63,6 +63,7 @@ import type {
 import { isImportedModelContent, isPrimitiveModelContent } from "../editor/model/project";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
+import { drawSceneBackdropFrame } from "../editor/preview/sceneBackdrop";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 import { useSelector } from "@xstate/store-react";
 import { viewportStore } from "../editor/store/viewportStore";
@@ -184,6 +185,29 @@ function getModelImportMimeType(file: File) {
   );
 }
 
+function createCompositeExportCanvas(sourceCanvas: HTMLCanvasElement) {
+  const compositeCanvas = document.createElement("canvas");
+  compositeCanvas.width = sourceCanvas.width;
+  compositeCanvas.height = sourceCanvas.height;
+  return compositeCanvas;
+}
+
+function drawCompositeExportFrame(
+  targetCanvas: HTMLCanvasElement,
+  sourceCanvas: HTMLCanvasElement,
+  sceneState: SampledSceneState,
+) {
+  const context = targetCanvas.getContext("2d");
+
+  if (!context) {
+    return false;
+  }
+
+  drawSceneBackdropFrame(context, sceneState);
+  context.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+  return true;
+}
+
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -192,6 +216,7 @@ export function AppShell() {
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const playbackTimeRef = useRef(0);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sceneStateRef = useRef<SampledSceneState | null>(null);
   const historyRef = useRef<Project[]>([]);
   const futureRef = useRef<Project[]>([]);
   const skipHistoryRef = useRef(false);
@@ -274,16 +299,10 @@ export function AppShell() {
   const seek = useEditorStore((state) => state.seek);
 
   const sceneState = useMemo(() => sampleSceneState(project, currentTime), [currentTime, project]);
+  sceneStateRef.current = sceneState;
   const sampledLayers = useMemo(
     () => project.layers.map((layer) => sampleLayer(layer, sceneState.incomingTime)),
     [project.layers, sceneState.incomingTime],
-  );
-  const outgoingSampledLayers = useMemo(
-    () =>
-      sceneState.outgoingScene
-        ? project.layers.map((layer) => sampleLayer(layer, sceneState.outgoingTime))
-        : [],
-    [project.layers, sceneState.outgoingScene, sceneState.outgoingTime],
   );
 
   const assetSources = useMemo(() => {
@@ -306,13 +325,6 @@ export function AppShell() {
         .map((layer) => toPreviewObject(layer, false, sceneState.incomingTime, assetSources))
         .filter((object) => object !== null),
     [assetSources, sampledLayers, sceneState.incomingTime],
-  );
-  const outgoingPreviewObjects = useMemo(
-    () =>
-      outgoingSampledLayers
-        .map((layer) => toPreviewObject(layer, false, sceneState.outgoingTime, assetSources))
-        .filter((object) => object !== null),
-    [assetSources, outgoingSampledLayers, sceneState.outgoingTime],
   );
 
   const selectedId = selectedLayerIds[0] ?? null;
@@ -870,8 +882,14 @@ export function AppShell() {
       return;
     }
 
+    const compositeCanvas = createCompositeExportCanvas(canvas);
+
+    if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
+      return;
+    }
+
     const link = document.createElement("a");
-    link.href = canvas.toDataURL("image/png");
+    link.href = compositeCanvas.toDataURL("image/png");
     link.download = `${project.name.toLowerCase().replaceAll(/\s+/g, "-")}.png`;
     link.click();
   };
@@ -883,17 +901,37 @@ export function AppShell() {
       return;
     }
 
+    const compositeCanvas = createCompositeExportCanvas(canvas);
+
+    if (!drawCompositeExportFrame(compositeCanvas, canvas, sceneState)) {
+      return;
+    }
+
     const previousLoopPlayback = loopPlayback;
     const chunks: Blob[] = [];
-    const recorder = new MediaRecorder(canvas.captureStream(project.fps), {
+    let compositeFrameId = 0;
+    const recorder = new MediaRecorder(compositeCanvas.captureStream(project.fps), {
       mimeType: "video/webm",
     });
+    const drawFrame = () => {
+      const nextSceneState = sceneStateRef.current;
+
+      if (nextSceneState) {
+        drawCompositeExportFrame(compositeCanvas, canvas, nextSceneState);
+      }
+
+      compositeFrameId = window.requestAnimationFrame(drawFrame);
+    };
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         chunks.push(event.data);
       }
     };
     recorder.onstop = () => {
+      if (compositeFrameId) {
+        window.cancelAnimationFrame(compositeFrameId);
+      }
+
       const blob = new Blob(chunks, { type: "video/webm" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -906,6 +944,9 @@ export function AppShell() {
     seek(0);
     setLoopPlayback(false);
     window.requestAnimationFrame(() => {
+      const nextSceneState = sceneStateRef.current ?? sceneState;
+      drawCompositeExportFrame(compositeCanvas, canvas, nextSceneState);
+      drawFrame();
       recorder.start();
       setPlaying(true);
       window.setTimeout(
@@ -1149,7 +1190,6 @@ export function AppShell() {
 
             <PreviewViewport
               objects={previewObjects}
-              outgoingObjects={outgoingPreviewObjects}
               sceneState={sceneState}
               selectedId={selectedId}
               onSelect={selectLayer}

@@ -1,14 +1,6 @@
 import { OrbitControls, Text, useGLTF, useTexture } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
-import {
-  type ReactNode,
-  Suspense,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -16,13 +8,16 @@ import { useSelector } from "@xstate/store-react";
 import { viewportStore } from "../store/viewportStore";
 import type { PreviewObject } from "../model/preview";
 import type { SampledSceneState } from "../engine/sceneSampler";
-
-const FRAME_WIDTH = 14;
-const FRAME_HEIGHT = 8.4;
+import {
+  buildSceneBackground,
+  FRAME_HEIGHT,
+  FRAME_WIDTH,
+  getBackgroundMotion,
+  getSceneFrameVisual,
+} from "./sceneBackdrop";
 
 type PreviewViewportProps = {
   objects: PreviewObject[];
-  outgoingObjects: PreviewObject[];
   sceneState: SampledSceneState;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -79,7 +74,6 @@ type DragState =
 
 export function PreviewViewport({
   objects,
-  outgoingObjects,
   sceneState,
   selectedId,
   onSelect,
@@ -249,68 +243,31 @@ export function PreviewViewport({
                 ))
               : null}
 
-            {sceneState.outgoingScene ? (
-              <SceneFrame
-                role="outgoing"
-                preset={sceneState.transitionPreset}
-                progress={sceneState.transitionProgress}
-              >
-                {outgoingObjects.map((object) => (
-                  <PreviewNode
-                    key={`outgoing-${object.id}`}
-                    object={object}
-                    selected={false}
-                    animationTime={sceneState.outgoingTime}
-                    opacityMultiplier={
-                      getSceneFrameVisual(
-                        "outgoing",
-                        sceneState.transitionPreset,
-                        sceneState.transitionProgress,
-                      ).opacity
-                    }
-                  />
-                ))}
-              </SceneFrame>
-            ) : null}
+            {objects.map((object) => (
+              <PreviewNode
+                key={object.id}
+                object={object}
+                selected={object.id === selectedId}
+                animationTime={sceneState.incomingTime}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  onSelect(object.id);
 
-            <SceneFrame
-              role="incoming"
-              preset={sceneState.transitionPreset}
-              progress={sceneState.transitionProgress}
-            >
-              {objects.map((object) => (
-                <PreviewNode
-                  key={object.id}
-                  object={object}
-                  selected={object.id === selectedId}
-                  animationTime={sceneState.incomingTime}
-                  opacityMultiplier={
-                    getSceneFrameVisual(
-                      "incoming",
-                      sceneState.transitionPreset,
-                      sceneState.transitionProgress,
-                    ).opacity
+                  if (interactionMode !== "select" || object.locked) {
+                    return;
                   }
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    onSelect(object.id);
 
-                    if (interactionMode !== "select" || object.locked) {
-                      return;
-                    }
-
-                    if (transformMode === "translate") {
-                      setDragState({
-                        type: "move",
-                        id: object.id,
-                        offsetX: object.x - (event.point.x - viewportOffset.x),
-                        offsetY: object.y - (event.point.y - viewportOffset.y),
-                      });
-                    }
-                  }}
-                />
-              ))}
-            </SceneFrame>
+                  if (transformMode === "translate") {
+                    setDragState({
+                      type: "move",
+                      id: object.id,
+                      offsetX: object.x - (event.point.x - viewportOffset.x),
+                      offsetY: object.y - (event.point.y - viewportOffset.y),
+                    });
+                  }
+                }}
+              />
+            ))}
 
             {selectedObject && !selectedObject.locked && interactionMode === "select" ? (
               <TransformHandles
@@ -440,26 +397,6 @@ function SceneBackdropLayer({
   );
 }
 
-function SceneFrame({
-  role,
-  preset,
-  progress,
-  children,
-}: {
-  role: "incoming" | "outgoing";
-  preset: SampledSceneState["transitionPreset"];
-  progress: number;
-  children: ReactNode;
-}) {
-  const visual = getSceneFrameVisual(role, preset, progress);
-
-  return (
-    <group position={[visual.x, visual.y, 0]} scale={[visual.scale, visual.scale, 1]}>
-      {children}
-    </group>
-  );
-}
-
 type TransformHandlesProps = {
   object: PreviewObject;
   transformMode: "translate" | "rotate" | "scale";
@@ -547,7 +484,6 @@ function TransformHandles({
             <meshBasicMaterial color="#7c3aed" />
           </mesh>
         ))}
-        {/* Inner white dot for each handle */}
         {scaleHandles.map(({ id, dx, dy }) => (
           <mesh
             key={`dot-${id}`}
@@ -574,7 +510,6 @@ function TransformHandles({
     ];
 
     const rOuter = Math.max(hw, hh) * 1.05 + offset;
-
     const centerX = px;
     const centerY = py;
 
@@ -596,7 +531,6 @@ function TransformHandles({
 
     return (
       <group position={[px, py, 0.9]}>
-        {/* Rotation orbit ring */}
         <mesh
           position={[0, 0, -0.01]}
           onPointerDown={handleRotatePointerDown}
@@ -607,7 +541,6 @@ function TransformHandles({
           <meshBasicMaterial color="#7c3aed" transparent opacity={0.35} side={THREE.DoubleSide} />
         </mesh>
 
-        {/* Corner rotate handles */}
         {rotateHandles.map(({ id, dx, dy }) => (
           <group key={id} position={[dx, dy, 0]}>
             <mesh
@@ -1378,153 +1311,6 @@ function getObjectBounds(object: PreviewObject) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-function getSceneFrameVisual(
-  role: "incoming" | "outgoing",
-  preset: SampledSceneState["transitionPreset"],
-  progress: number,
-) {
-  const safeProgress = clamp(progress, 0, 1);
-
-  if (preset === "fade") {
-    return {
-      x: 0,
-      y: 0,
-      scale: 1,
-      opacity: role === "incoming" ? safeProgress : 1 - safeProgress,
-    };
-  }
-
-  if (preset === "slideFromLeft") {
-    return {
-      x:
-        role === "incoming" ? -(1 - safeProgress) * FRAME_WIDTH : safeProgress * FRAME_WIDTH * 0.65,
-      y: 0,
-      scale: 1,
-      opacity: 1,
-    };
-  }
-
-  if (preset === "slideFromRight") {
-    return {
-      x:
-        role === "incoming" ? (1 - safeProgress) * FRAME_WIDTH : -safeProgress * FRAME_WIDTH * 0.65,
-      y: 0,
-      scale: 1,
-      opacity: 1,
-    };
-  }
-
-  if (preset === "slideFromTop") {
-    return {
-      x: 0,
-      y:
-        role === "incoming"
-          ? (1 - safeProgress) * FRAME_HEIGHT
-          : -safeProgress * FRAME_HEIGHT * 0.65,
-      scale: 1,
-      opacity: 1,
-    };
-  }
-
-  if (preset === "slideFromBottom") {
-    return {
-      x: 0,
-      y:
-        role === "incoming"
-          ? -(1 - safeProgress) * FRAME_HEIGHT
-          : safeProgress * FRAME_HEIGHT * 0.65,
-      scale: 1,
-      opacity: 1,
-    };
-  }
-
-  if (preset === "zoomIn") {
-    return {
-      x: 0,
-      y: 0,
-      scale: role === "incoming" ? 1.16 - safeProgress * 0.16 : 1 + safeProgress * 0.06,
-      opacity: role === "incoming" ? safeProgress : 1 - safeProgress,
-    };
-  }
-
-  if (preset === "zoomOut") {
-    return {
-      x: 0,
-      y: 0,
-      scale: role === "incoming" ? 0.84 + safeProgress * 0.16 : 1.08 - safeProgress * 0.08,
-      opacity: role === "incoming" ? safeProgress : 1 - safeProgress,
-    };
-  }
-
-  return {
-    x: 0,
-    y: 0,
-    scale: 1,
-    opacity: role === "incoming" ? 1 : 0,
-  };
-}
-
-function getBackgroundMotion(animation: "none" | "drift" | "pulse", localTime: number) {
-  if (animation === "drift") {
-    return {
-      x: Math.sin(localTime * 0.35) * 2.5,
-      y: Math.cos(localTime * 0.28) * 1.8,
-      scale: 1.06,
-    };
-  }
-
-  if (animation === "pulse") {
-    return {
-      x: 0,
-      y: 0,
-      scale: 1.03 + Math.sin(localTime * 1.4) * 0.03,
-    };
-  }
-
-  return {
-    x: 0,
-    y: 0,
-    scale: 1,
-  };
-}
-
-function buildSceneBackground(color: string, accent: string) {
-  const mixed = mixHexColors(color, accent, 0.32);
-  return [
-    `radial-gradient(circle at 18% 18%, ${accent} 0%, transparent 36%)`,
-    `radial-gradient(circle at 80% 24%, ${mixed} 0%, transparent 30%)`,
-    `linear-gradient(145deg, ${color} 0%, ${mixed} 100%)`,
-  ].join(", ");
-}
-
-function mixHexColors(first: string, second: string, amount: number) {
-  const left = parseHexColor(first);
-  const right = parseHexColor(second);
-  const mix = (leftValue: number, rightValue: number) =>
-    Math.round(leftValue + (rightValue - leftValue) * amount)
-      .toString(16)
-      .padStart(2, "0");
-
-  return `#${mix(left.r, right.r)}${mix(left.g, right.g)}${mix(left.b, right.b)}`;
-}
-
-function parseHexColor(value: string) {
-  const normalized = value.replace("#", "");
-  const hex =
-    normalized.length === 3
-      ? normalized
-          .split("")
-          .map((part) => `${part}${part}`)
-          .join("")
-      : normalized.padEnd(6, "0").slice(0, 6);
-
-  return {
-    r: Number.parseInt(hex.slice(0, 2), 16),
-    g: Number.parseInt(hex.slice(2, 4), 16),
-    b: Number.parseInt(hex.slice(4, 6), 16),
-  };
 }
 
 function getScaleHandleCursor(handle: ScaleHandle): PreviewCursor {
