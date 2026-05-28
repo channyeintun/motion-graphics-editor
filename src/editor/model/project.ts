@@ -8,6 +8,8 @@ export type AnimatableProperty =
   | "rotation"
   | "scaleX"
   | "scaleY"
+  | "skewX"
+  | "skewY"
   | "opacity"
   | "color"
   | "text";
@@ -18,11 +20,15 @@ export type Transform = {
   rotation: number;
   scaleX: number;
   scaleY: number;
+  skewX: number;
+  skewY: number;
 };
 
 export type TextContent = {
   value: string;
   fontSize: number;
+  fontWeight?: number;
+  letterSpacing?: number;
 };
 
 export type ShapeContent = {
@@ -43,6 +49,11 @@ export type ModelContent = {
   radius?: number;
   radialSegments?: number;
   tubularRadius?: number;
+  roughness?: number;
+  metalness?: number;
+  emissive?: string;
+  emissiveIntensity?: number;
+  wireframe?: boolean;
 };
 
 export type ImageContent = {

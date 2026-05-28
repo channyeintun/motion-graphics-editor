@@ -4,10 +4,13 @@ import { createDefaultProject } from "../model/defaultProject";
 import type {
   AnimatableProperty,
   Clip,
+  Easing,
   Layer,
+  TextContent,
   Project,
   ShapeContent,
   ModelContent,
+  Transform,
 } from "../model/project";
 import { clampClipEdge, clampClipMove, minClipDuration } from "../timeline/timelineMath";
 
@@ -36,10 +39,20 @@ type EditorState = {
   toggleLayerLock: (layerId: string) => void;
   reorderLayer: (layerId: string, direction: "up" | "down") => void;
   updateTextLayer: (layerId: string, value: string) => void;
+  updateTextStyle: (
+    layerId: string,
+    patch: Partial<Pick<TextContent, "fontSize" | "fontWeight" | "letterSpacing">>,
+  ) => void;
   updateLayerColor: (layerId: string, color: string) => void;
+  updateModelMaterial: (
+    layerId: string,
+    patch: Partial<
+      Pick<ModelContent, "roughness" | "metalness" | "emissive" | "emissiveIntensity" | "wireframe">
+    >,
+  ) => void;
   updateTransformProperty: (
     layerId: string,
-    property: "x" | "y" | "rotation" | "scaleX" | "scaleY",
+    property: "x" | "y" | "rotation" | "scaleX" | "scaleY" | "skewX" | "skewY",
     value: number,
   ) => void;
   updateLayerOpacity: (layerId: string, opacity: number) => void;
@@ -47,11 +60,13 @@ type EditorState = {
   moveLayerObject: (layerId: string, nextX: number, nextY: number) => void;
   moveClip: (clipId: string, nextStart: number) => void;
   trimClip: (clipId: string, edge: "start" | "end", nextTime: number) => void;
+  setClipEnabled: (clipId: string, enabled: boolean) => void;
   addKeyframe: (
     layerId: string,
-    property: "x" | "y" | "rotation" | "scaleX" | "scaleY" | "opacity",
+    property: "x" | "y" | "rotation" | "scaleX" | "scaleY" | "skewX" | "skewY" | "opacity",
   ) => void;
   moveKeyframe: (keyframeId: string, nextTime: number) => void;
+  updateKeyframeEasing: (keyframeId: string, easing: Easing) => void;
   deleteKeyframe: (keyframeId: string) => void;
   setPlaying: (isPlaying: boolean) => void;
   setLoopPlayback: (loopPlayback: boolean) => void;
@@ -82,8 +97,20 @@ function isLayerLocked(project: Project, layerId: string) {
 
 type NumericProperty = Extract<
   AnimatableProperty,
-  "x" | "y" | "rotation" | "scaleX" | "scaleY" | "opacity"
+  "x" | "y" | "rotation" | "scaleX" | "scaleY" | "skewX" | "skewY" | "opacity"
 >;
+
+function createDefaultTransform(): Transform {
+  return {
+    x: 0,
+    y: 0,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    skewX: 0,
+    skewY: 0,
+  };
+}
 
 function getNumericPropertyValue(layer: Layer, property: NumericProperty) {
   return property === "opacity" ? layer.object.opacity : layer.object.transform[property];
@@ -265,10 +292,10 @@ export const useEditorStore = create<EditorState>((set) => ({
               locked: false,
               object: {
                 id: `${layerId}-object`,
-                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                transform: createDefaultTransform(),
                 opacity: 1,
                 style: { color: "#18181b" },
-                content: { value: "New Title", fontSize: 0.85 },
+                content: { value: "New Title", fontSize: 0.85, fontWeight: 500, letterSpacing: 0 },
               },
               clips: [
                 {
@@ -323,7 +350,7 @@ export const useEditorStore = create<EditorState>((set) => ({
               locked: false,
               object: {
                 id: `${layerId}-object`,
-                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                transform: createDefaultTransform(),
                 opacity: 1,
                 style: { color },
                 content,
@@ -365,14 +392,63 @@ export const useEditorStore = create<EditorState>((set) => ({
 
       const content: ModelContent =
         shape === "cube"
-          ? { shape, width: 1.3, height: 1.3, depth: 1.3 }
+          ? {
+              shape,
+              width: 1.3,
+              height: 1.3,
+              depth: 1.3,
+              roughness: 0.4,
+              metalness: 0.1,
+              emissive: "#000000",
+              emissiveIntensity: 0,
+              wireframe: false,
+            }
           : shape === "sphere"
-            ? { shape, radius: 0.8, radialSegments: 32 }
+            ? {
+                shape,
+                radius: 0.8,
+                radialSegments: 32,
+                roughness: 0.4,
+                metalness: 0.1,
+                emissive: "#000000",
+                emissiveIntensity: 0,
+                wireframe: false,
+              }
             : shape === "cylinder"
-              ? { shape, radius: 0.6, height: 1.4, radialSegments: 32 }
+              ? {
+                  shape,
+                  radius: 0.6,
+                  height: 1.4,
+                  radialSegments: 32,
+                  roughness: 0.4,
+                  metalness: 0.1,
+                  emissive: "#000000",
+                  emissiveIntensity: 0,
+                  wireframe: false,
+                }
               : shape === "cone"
-                ? { shape, radius: 0.7, height: 1.4, radialSegments: 32 }
-                : { shape, radius: 0.7, tubularRadius: 0.22, radialSegments: 32 };
+                ? {
+                    shape,
+                    radius: 0.7,
+                    height: 1.4,
+                    radialSegments: 32,
+                    roughness: 0.4,
+                    metalness: 0.1,
+                    emissive: "#000000",
+                    emissiveIntensity: 0,
+                    wireframe: false,
+                  }
+                : {
+                    shape,
+                    radius: 0.7,
+                    tubularRadius: 0.22,
+                    radialSegments: 32,
+                    roughness: 0.4,
+                    metalness: 0.1,
+                    emissive: "#000000",
+                    emissiveIntensity: 0,
+                    wireframe: false,
+                  };
 
       return {
         project: {
@@ -386,7 +462,7 @@ export const useEditorStore = create<EditorState>((set) => ({
               locked: false,
               object: {
                 id: `${layerId}-object`,
-                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                transform: createDefaultTransform(),
                 opacity: 1,
                 style: { color },
                 content,
@@ -438,7 +514,7 @@ export const useEditorStore = create<EditorState>((set) => ({
               locked: false,
               object: {
                 id: `${layerId}-object`,
-                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                transform: createDefaultTransform(),
                 opacity: 1,
                 style: { color: "#ffffff" },
                 content: {
@@ -505,7 +581,7 @@ export const useEditorStore = create<EditorState>((set) => ({
               locked: false,
               object: {
                 id: `${layerId}-object`,
-                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                transform: createDefaultTransform(),
                 opacity: 1,
                 style: { color: "#22c55e" },
                 content: { assetId },
@@ -665,6 +741,35 @@ export const useEditorStore = create<EditorState>((set) => ({
       },
     }));
   },
+  updateTextStyle: (layerId, patch) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => {
+          if (
+            layer.id !== layerId ||
+            layer.locked ||
+            layer.type !== "text" ||
+            !layer.object.content ||
+            !("value" in layer.object.content)
+          ) {
+            return layer;
+          }
+
+          return {
+            ...layer,
+            object: {
+              ...layer.object,
+              content: {
+                ...layer.object.content,
+                ...patch,
+              },
+            },
+          };
+        }),
+      },
+    }));
+  },
   updateLayerColor: (layerId, color) => {
     set((state) => ({
       project: {
@@ -680,6 +785,35 @@ export const useEditorStore = create<EditorState>((set) => ({
               }
             : layer,
         ),
+      },
+    }));
+  },
+  updateModelMaterial: (layerId, patch) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => {
+          if (
+            layer.id !== layerId ||
+            layer.locked ||
+            layer.type !== "model" ||
+            !layer.object.content ||
+            !("shape" in layer.object.content)
+          ) {
+            return layer;
+          }
+
+          return {
+            ...layer,
+            object: {
+              ...layer.object,
+              content: {
+                ...layer.object.content,
+                ...patch,
+              },
+            },
+          };
+        }),
       },
     }));
   },
@@ -766,6 +900,19 @@ export const useEditorStore = create<EditorState>((set) => ({
       },
     }));
   },
+  setClipEnabled: (clipId, enabled) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => ({
+          ...layer,
+          clips: layer.clips.map((clip) =>
+            clip.id === clipId && !layer.locked ? { ...clip, enabled } : clip,
+          ),
+        })),
+      },
+    }));
+  },
   addKeyframe: (layerId, property) => {
     set((state) => {
       const layer = state.project.layers.find((candidateLayer) => candidateLayer.id === layerId);
@@ -783,6 +930,22 @@ export const useEditorStore = create<EditorState>((set) => ({
         true,
       );
     });
+  },
+  updateKeyframeEasing: (keyframeId, easing) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => ({
+          ...layer,
+          clips: layer.clips.map((clip) => ({
+            ...clip,
+            keyframes: clip.keyframes.map((keyframe) =>
+              keyframe.id === keyframeId && !layer.locked ? { ...keyframe, easing } : keyframe,
+            ),
+          })),
+        })),
+      },
+    }));
   },
   moveKeyframe: (keyframeId, nextTime) => {
     set((state) => ({

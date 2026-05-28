@@ -34,6 +34,8 @@ export function sampleLayer(layer: Layer, currentTime: number) {
         ),
         scaleX: sampleNumericProperty(layer.object.transform.scaleX, clip, currentTime, "scaleX"),
         scaleY: sampleNumericProperty(layer.object.transform.scaleY, clip, currentTime, "scaleY"),
+        skewX: sampleNumericProperty(layer.object.transform.skewX, clip, currentTime, "skewX"),
+        skewY: sampleNumericProperty(layer.object.transform.skewY, clip, currentTime, "skewY"),
       },
       opacity: sampleNumericProperty(layer.object.opacity, clip, currentTime, "opacity"),
     },
@@ -44,7 +46,15 @@ function sampleNumericProperty(
   baseValue: number,
   clip: Clip,
   currentTime: number,
-  property: "x" | "y" | "rotation" | "scaleX" | "scaleY" | "opacity",
+  property:
+    | "x"
+    | "y"
+    | "rotation"
+    | "scaleX"
+    | "scaleY"
+    | "skewX"
+    | "skewY"
+    | "opacity",
 ) {
   const keyframes = clip.keyframes
     .filter((keyframe) => keyframe.property === property && typeof keyframe.value === "number")

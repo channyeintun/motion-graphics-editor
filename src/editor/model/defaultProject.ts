@@ -21,10 +21,10 @@ const defaultLayers: Layer[] = [
     locked: false,
     object: {
       id: "headline-object",
-      transform: { x: 0, y: 1.8, rotation: 0, scaleX: 1, scaleY: 1 },
+      transform: { x: 0, y: 1.8, rotation: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0 },
       opacity: 1,
       style: { color: "#18181b" },
-      content: { value: "Motion", fontSize: 1.1 },
+      content: { value: "Motion", fontSize: 1.1, fontWeight: 600, letterSpacing: 0 },
     },
     clips: [makeClip("headline", "Headline In")],
   },
@@ -36,10 +36,15 @@ const defaultLayers: Layer[] = [
     locked: false,
     object: {
       id: "subhead-object",
-      transform: { x: 0, y: 0.75, rotation: 0, scaleX: 1, scaleY: 1 },
+      transform: { x: 0, y: 0.75, rotation: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0 },
       opacity: 0.78,
       style: { color: "#475569" },
-      content: { value: "Three.js preview stage", fontSize: 0.38 },
+      content: {
+        value: "Three.js preview stage",
+        fontSize: 0.38,
+        fontWeight: 400,
+        letterSpacing: 0,
+      },
     },
     clips: [makeClip("subhead", "Subhead Hold")],
   },
@@ -51,7 +56,7 @@ const defaultLayers: Layer[] = [
     locked: false,
     object: {
       id: "bar-object",
-      transform: { x: 0, y: -1.45, rotation: 0, scaleX: 1, scaleY: 1 },
+      transform: { x: 0, y: -1.45, rotation: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0 },
       opacity: 1,
       style: { color: "#7c3aed" },
       content: { shape: "rectangle", width: 4.2, height: 0.48 },
@@ -66,7 +71,7 @@ const defaultLayers: Layer[] = [
     locked: false,
     object: {
       id: "orb-object",
-      transform: { x: 2.1, y: 2.35, rotation: 0, scaleX: 1, scaleY: 1 },
+      transform: { x: 2.1, y: 2.35, rotation: 0, scaleX: 1, scaleY: 1, skewX: 0, skewY: 0 },
       opacity: 0.95,
       style: { color: "#06b6d4" },
       content: { shape: "circle", radius: 0.44 },

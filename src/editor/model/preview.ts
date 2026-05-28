@@ -12,10 +12,14 @@ export type PreviewObject = {
   rotation: number;
   scaleX: number;
   scaleY: number;
+  skewX: number;
+  skewY: number;
   opacity: number;
   color: string;
   text?: string;
   fontSize?: number;
+  fontWeight?: number;
+  letterSpacing?: number;
   shape?:
     | "rectangle"
     | "circle"
@@ -36,6 +40,11 @@ export type PreviewObject = {
   innerRadius?: number;
   radialSegments?: number;
   tubularRadius?: number;
+  roughness?: number;
+  metalness?: number;
+  emissive?: string;
+  emissiveIntensity?: number;
+  wireframe?: boolean;
   src?: string;
 };
 
@@ -57,10 +66,14 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      skewX: object.transform.skewX,
+      skewY: object.transform.skewY,
       opacity: object.opacity,
       color: object.style.color,
       text: object.content.value,
       fontSize: object.content.fontSize,
+      fontWeight: object.content.fontWeight,
+      letterSpacing: object.content.letterSpacing,
     };
   }
 
@@ -75,6 +88,8 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      skewX: object.transform.skewX,
+      skewY: object.transform.skewY,
       opacity: object.opacity,
       color: object.style.color,
       shape: object.content.shape,
@@ -98,6 +113,8 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      skewX: object.transform.skewX,
+      skewY: object.transform.skewY,
       opacity: object.opacity,
       color: object.style.color,
       shape: object.content.shape,
@@ -108,6 +125,12 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       radialSegments:
         "radialSegments" in object.content ? object.content.radialSegments : undefined,
       tubularRadius: "tubularRadius" in object.content ? object.content.tubularRadius : undefined,
+      roughness: "roughness" in object.content ? object.content.roughness : undefined,
+      metalness: "metalness" in object.content ? object.content.metalness : undefined,
+      emissive: "emissive" in object.content ? object.content.emissive : undefined,
+      emissiveIntensity:
+        "emissiveIntensity" in object.content ? object.content.emissiveIntensity : undefined,
+      wireframe: "wireframe" in object.content ? object.content.wireframe : undefined,
     };
   }
 
@@ -127,6 +150,8 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      skewX: object.transform.skewX,
+      skewY: object.transform.skewY,
       opacity: object.opacity,
       color: object.style.color,
       width: object.content.width,

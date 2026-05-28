@@ -490,25 +490,48 @@ type PreviewContentProps = {
 };
 
 function PreviewNode({ object, selected, onPointerDown }: PreviewNodeProps) {
+  const transformMatrix = useMemo(() => {
+    const rotationMatrix = new THREE.Matrix4().makeRotationZ(object.rotation);
+    const skewMatrix = new THREE.Matrix4().set(
+      1,
+      Math.tan(object.skewY),
+      0,
+      0,
+      Math.tan(object.skewX),
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+    );
+    const scaleMatrix = new THREE.Matrix4().makeScale(object.scaleX, object.scaleY, 1);
+
+    return rotationMatrix.multiply(skewMatrix).multiply(scaleMatrix);
+  }, [object.rotation, object.scaleX, object.scaleY, object.skewX, object.skewY]);
+
   return (
-    <group
-      position={[object.x, object.y, object.type === "model" ? 0.65 : 0.5]}
-      rotation={[0, 0, object.rotation]}
-      scale={[object.scaleX, object.scaleY, 1]}
-    >
-      {selected ? <SelectionFrame object={object} /> : null}
-      {object.type === "text" ? (
-        <PreviewText object={object} onPointerDown={onPointerDown} />
-      ) : null}
-      {object.type === "shape" ? (
-        <PreviewShape object={object} onPointerDown={onPointerDown} />
-      ) : null}
-      {object.type === "image" ? (
-        <PreviewImage object={object} onPointerDown={onPointerDown} />
-      ) : null}
-      {object.type === "model" ? (
-        <PreviewModel object={object} onPointerDown={onPointerDown} />
-      ) : null}
+    <group position={[object.x, object.y, object.type === "model" ? 0.65 : 0.5]}>
+      <group matrixAutoUpdate={false} matrix={transformMatrix}>
+        {selected ? <SelectionFrame object={object} /> : null}
+        {object.type === "text" ? (
+          <PreviewText object={object} onPointerDown={onPointerDown} />
+        ) : null}
+        {object.type === "shape" ? (
+          <PreviewShape object={object} onPointerDown={onPointerDown} />
+        ) : null}
+        {object.type === "image" ? (
+          <PreviewImage object={object} onPointerDown={onPointerDown} />
+        ) : null}
+        {object.type === "model" ? (
+          <PreviewModel object={object} onPointerDown={onPointerDown} />
+        ) : null}
+      </group>
     </group>
   );
 }
@@ -518,6 +541,8 @@ function PreviewText({ object, onPointerDown }: PreviewContentProps) {
     <Text
       position={[0, 0, 0.3]}
       fontSize={object.fontSize ?? 0.9}
+      fontWeight={object.fontWeight ?? 400}
+      letterSpacing={object.letterSpacing ?? 0}
       color={object.color}
       anchorX="center"
       anchorY="middle"
@@ -630,8 +655,11 @@ function PreviewModel({ object, onPointerDown }: PreviewContentProps) {
     color: object.color,
     transparent: true,
     opacity: object.opacity,
-    roughness: 0.4,
-    metalness: 0.1,
+    roughness: object.roughness ?? 0.4,
+    metalness: object.metalness ?? 0.1,
+    emissive: object.emissive ?? "#000000",
+    emissiveIntensity: object.emissiveIntensity ?? 0,
+    wireframe: object.wireframe ?? false,
   };
 
   if (object.shape === "cube") {

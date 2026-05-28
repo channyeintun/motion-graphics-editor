@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { sampleLayer } from "../editor/engine/animationSampler";
 import { toPreviewObject } from "../editor/model/preview";
-import type { Project } from "../editor/model/project";
+import type { Easing, Project } from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 import { useSelector } from "@xstate/store-react";
@@ -81,6 +81,8 @@ const SHAPE_TOOL_OPTIONS = [
   label: string;
 }>;
 
+const EASING_OPTIONS: Easing[] = ["linear", "easeIn", "easeOut", "easeInOut"];
+
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -122,7 +124,9 @@ export function AppShell() {
   const toggleLayerLock = useEditorStore((state) => state.toggleLayerLock);
   const reorderLayer = useEditorStore((state) => state.reorderLayer);
   const updateTextLayer = useEditorStore((state) => state.updateTextLayer);
+  const updateTextStyle = useEditorStore((state) => state.updateTextStyle);
   const updateLayerColor = useEditorStore((state) => state.updateLayerColor);
+  const updateModelMaterial = useEditorStore((state) => state.updateModelMaterial);
   const updateTransformProperty = useEditorStore((state) => state.updateTransformProperty);
   const updateLayerOpacity = useEditorStore((state) => state.updateLayerOpacity);
   const moveLayerObject = useEditorStore((state) => state.moveLayerObject);
@@ -144,8 +148,10 @@ export function AppShell() {
   );
   const moveClip = useEditorStore((state) => state.moveClip);
   const trimClip = useEditorStore((state) => state.trimClip);
+  const setClipEnabled = useEditorStore((state) => state.setClipEnabled);
   const addKeyframe = useEditorStore((state) => state.addKeyframe);
   const moveKeyframe = useEditorStore((state) => state.moveKeyframe);
+  const updateKeyframeEasing = useEditorStore((state) => state.updateKeyframeEasing);
   const deleteKeyframe = useEditorStore((state) => state.deleteKeyframe);
   const setPlaying = useEditorStore((state) => state.setPlaying);
   const setLoopPlayback = useEditorStore((state) => state.setLoopPlayback);
@@ -169,6 +175,17 @@ export function AppShell() {
       null,
     [project.layers, selectedClipId],
   );
+  const inspectorClip = useMemo(() => {
+    if (!selectedLayer) {
+      return null;
+    }
+
+    return selectedLayer.clips.find((clip) => clip.id === selectedClipId) ?? selectedLayer.clips[0] ?? null;
+  }, [selectedClipId, selectedLayer]);
+  const selectedKeyframe = useMemo(
+    () => inspectorClip?.keyframes.find((keyframe) => keyframe.id === selectedKeyframeId) ?? null,
+    [inspectorClip, selectedKeyframeId],
+  );
   const selectedObject = useMemo(() => {
     if (!selectedLayer) {
       return null;
@@ -182,11 +199,37 @@ export function AppShell() {
       y: selectedObject?.y ?? selectedLayer?.object.transform.y ?? 0,
       scaleX: selectedObject?.scaleX ?? selectedLayer?.object.transform.scaleX ?? 1,
       scaleY: selectedObject?.scaleY ?? selectedLayer?.object.transform.scaleY ?? 1,
+      skewX: selectedObject?.skewX ?? selectedLayer?.object.transform.skewX ?? 0,
+      skewY: selectedObject?.skewY ?? selectedLayer?.object.transform.skewY ?? 0,
       rotation: selectedObject?.rotation ?? selectedLayer?.object.transform.rotation ?? 0,
       opacity: selectedObject?.opacity ?? selectedLayer?.object.opacity ?? 1,
     }),
     [selectedLayer, selectedObject],
   );
+  const selectedTextContent = useMemo(() => {
+    if (
+      !selectedLayer ||
+      selectedLayer.type !== "text" ||
+      !selectedLayer.object.content ||
+      !("value" in selectedLayer.object.content)
+    ) {
+      return null;
+    }
+
+    return selectedLayer.object.content;
+  }, [selectedLayer]);
+  const selectedModelContent = useMemo(() => {
+    if (
+      !selectedLayer ||
+      selectedLayer.type !== "model" ||
+      !selectedLayer.object.content ||
+      !("shape" in selectedLayer.object.content)
+    ) {
+      return null;
+    }
+
+    return selectedLayer.object.content;
+  }, [selectedLayer]);
   const selectionLocked = selectedLayer?.locked ?? false;
 
   playbackTimeRef.current = currentTime;
@@ -796,8 +839,8 @@ export function AppShell() {
                     </h2>
                     <p className="text-xs text-slate-400">
                       {(selectedObject?.type ?? selectedLayer.type).toUpperCase()} •{" "}
-                      {selectedClip
-                        ? `${selectedClip.start.toFixed(2)}s - ${selectedClip.end.toFixed(2)}s`
+                      {inspectorClip
+                        ? `${inspectorClip.start.toFixed(2)}s - ${inspectorClip.end.toFixed(2)}s`
                         : "No clip"}
                     </p>
                   </div>
@@ -947,6 +990,32 @@ export function AppShell() {
                           className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
+                      <MiniField label="Skew X">
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={selectedValues.skewX}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateTransformProperty(selectedId, "skewX", Number(event.target.value))
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Skew Y">
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={selectedValues.skewY}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateTransformProperty(selectedId, "skewY", Number(event.target.value))
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
                       <MiniField label="Rotation">
                         <input
                           type="number"
@@ -973,25 +1042,246 @@ export function AppShell() {
                   </div>
                 )}
 
-                {selectedLayer.type === "text" &&
-                selectedLayer.object.content &&
-                "value" in selectedLayer.object.content ? (
-                  <MiniField label="Text" className="mt-3">
-                    <textarea
-                      value={selectedLayer.object.content.value}
-                      onChange={(event) =>
-                        selectedId && updateTextLayer(selectedId, event.target.value)
-                      }
-                      rows={2}
-                      disabled={selectionLocked}
-                      className="w-full rounded-xl border border-white/8 bg-black/30 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    />
-                  </MiniField>
+                {selectedTextContent ? (
+                  <>
+                    <MiniField label="Text" className="mt-3">
+                      <textarea
+                        value={selectedTextContent.value}
+                        onChange={(event) =>
+                          selectedId && updateTextLayer(selectedId, event.target.value)
+                        }
+                        rows={2}
+                        disabled={selectionLocked}
+                        className="w-full rounded-xl border border-white/8 bg-black/30 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                      />
+                    </MiniField>
+                    <div className="mt-3 rounded-2xl border border-white/8 bg-black/18 p-3">
+                      <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Type Style</p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <MiniField label="Font Size">
+                          <input
+                            type="number"
+                            step="0.05"
+                            value={selectedTextContent.fontSize}
+                            onChange={(event) =>
+                              selectedId &&
+                              updateTextStyle(selectedId, {
+                                fontSize: Number(event.target.value),
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </MiniField>
+                        <MiniField label="Weight">
+                          <input
+                            type="number"
+                            min="100"
+                            max="900"
+                            step="100"
+                            value={selectedTextContent.fontWeight ?? 400}
+                            onChange={(event) =>
+                              selectedId &&
+                              updateTextStyle(selectedId, {
+                                fontWeight: Number(event.target.value),
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </MiniField>
+                        <MiniField label="Letter Spacing" className="col-span-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={selectedTextContent.letterSpacing ?? 0}
+                            onChange={(event) =>
+                              selectedId &&
+                              updateTextStyle(selectedId, {
+                                letterSpacing: Number(event.target.value),
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </MiniField>
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {selectedModelContent ? (
+                  <div className="mt-3 rounded-2xl border border-white/8 bg-black/18 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">3D Material</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <MiniField label="Roughness">
+                        <input
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={selectedModelContent.roughness ?? 0.4}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateModelMaterial(selectedId, {
+                              roughness: Number(event.target.value),
+                            })
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Metalness">
+                        <input
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={selectedModelContent.metalness ?? 0.1}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateModelMaterial(selectedId, {
+                              metalness: Number(event.target.value),
+                            })
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Emissive">
+                        <input
+                          type="color"
+                          value={selectedModelContent.emissive ?? "#000000"}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateModelMaterial(selectedId, {
+                              emissive: event.target.value,
+                            })
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Glow">
+                        <input
+                          type="number"
+                          min="0"
+                          max="5"
+                          step="0.05"
+                          value={selectedModelContent.emissiveIntensity ?? 0}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateModelMaterial(selectedId, {
+                              emissiveIntensity: Number(event.target.value),
+                            })
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Wireframe" className="col-span-2">
+                        <label className="flex h-9 items-center gap-2 rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white">
+                          <input
+                            type="checkbox"
+                            checked={selectedModelContent.wireframe ?? false}
+                            onChange={(event) =>
+                              selectedId &&
+                              updateModelMaterial(selectedId, {
+                                wireframe: event.target.checked,
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="accent-white disabled:cursor-not-allowed"
+                          />
+                          <span>Render as wireframe mesh</span>
+                        </label>
+                      </MiniField>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selectedLayer.type !== "audio" ? (
+                  <div className="mt-3 rounded-2xl border border-white/8 bg-black/18 p-3">
+                    <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Animation</p>
+                    {inspectorClip ? (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <MiniField label="Delay">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.05"
+                            value={inspectorClip.start}
+                            onChange={(event) =>
+                              moveClip(inspectorClip.id, Number(event.target.value))
+                            }
+                            disabled={selectionLocked}
+                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </MiniField>
+                        <MiniField label="Duration">
+                          <input
+                            type="number"
+                            min="0.1"
+                            step="0.05"
+                            value={Number((inspectorClip.end - inspectorClip.start).toFixed(2))}
+                            onChange={(event) =>
+                              trimClip(
+                                inspectorClip.id,
+                                "end",
+                                inspectorClip.start + Math.max(0.1, Number(event.target.value)),
+                              )
+                            }
+                            disabled={selectionLocked}
+                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </MiniField>
+                        <MiniField label="Enabled" className="col-span-2">
+                          <label className="flex h-9 items-center gap-2 rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white">
+                            <input
+                              type="checkbox"
+                              checked={inspectorClip.enabled}
+                              onChange={(event) =>
+                                setClipEnabled(inspectorClip.id, event.target.checked)
+                              }
+                              disabled={selectionLocked}
+                              className="accent-white disabled:cursor-not-allowed"
+                            />
+                            <span>Clip contributes to playback and preview sampling</span>
+                          </label>
+                        </MiniField>
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">No clip is available for this layer.</p>
+                    )}
+
+                    {selectedKeyframe ? (
+                      <MiniField label="Keyframe Easing" className="mt-3">
+                        <select
+                          value={selectedKeyframe.easing}
+                          onChange={(event) =>
+                            updateKeyframeEasing(selectedKeyframe.id, event.target.value as Easing)
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {EASING_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </MiniField>
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">
+                        Select a keyframe in the timeline to tune its easing curve.
+                      </p>
+                    )}
+                  </div>
                 ) : null}
 
                 {selectedLayer.type !== "audio" ? (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {(["x", "y", "scaleX", "scaleY", "rotation", "opacity"] as const).map(
+                    {(["x", "y", "scaleX", "scaleY", "skewX", "skewY", "rotation", "opacity"] as const).map(
                       (property) => (
                         <button
                           key={property}
