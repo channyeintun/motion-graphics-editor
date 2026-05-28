@@ -3,10 +3,14 @@ import { sampleLayer } from "../engine/animationSampler";
 import { createDefaultProject } from "../model/defaultProject";
 import type {
   AnimatableProperty,
+  BackgroundAnimationPreset,
   Clip,
   ClipTransition,
   Easing,
   Layer,
+  Scene,
+  SceneBackground,
+  SceneTransition,
   TextContent,
   Project,
   ShapeContent,
@@ -20,12 +24,14 @@ export const STORAGE_KEY = "motion-graphics-editor.project";
 type EditorState = {
   project: Project;
   selectedLayerIds: string[];
+  selectedSceneId: string | null;
   selectedClipId: string | null;
   selectedKeyframeId: string | null;
   currentTime: number;
   isPlaying: boolean;
   loopPlayback: boolean;
   selectLayer: (layerId: string | null, additive?: boolean) => void;
+  selectScene: (sceneId: string | null) => void;
   selectClip: (clipId: string | null) => void;
   selectKeyframe: (keyframeId: string | null) => void;
   replaceProject: (project: Project) => void;
@@ -67,6 +73,12 @@ type EditorState = {
     edge: "in" | "out",
     patch: Partial<ClipTransition>,
   ) => void;
+  createSceneAtPlayhead: () => void;
+  deleteScene: (sceneId: string) => void;
+  moveSceneBoundary: (sceneId: string, nextTime: number) => void;
+  updateSceneName: (sceneId: string, name: string) => void;
+  updateSceneBackground: (sceneId: string, patch: Partial<SceneBackground>) => void;
+  updateSceneTransition: (sceneId: string, patch: Partial<SceneTransition>) => void;
   addKeyframe: (
     layerId: string,
     property: "x" | "y" | "rotation" | "scaleX" | "scaleY" | "skewX" | "skewY" | "opacity",
@@ -129,7 +141,149 @@ function createDefaultClipTransition(): ClipTransition {
   };
 }
 
+function createDefaultSceneBackground(
+  color = "#f3efe3",
+  accent = "#d8c7a7",
+  animation: BackgroundAnimationPreset = "none",
+): SceneBackground {
+  return {
+    color,
+    accent,
+    animation,
+  };
+}
+
+function createDefaultSceneTransition(
+  preset: SceneTransition["preset"] = "none",
+  duration = 0,
+): SceneTransition {
+  return {
+    preset,
+    duration,
+  };
+}
+
+function createScene(
+  id: string,
+  name: string,
+  start: number,
+  end: number,
+  background: SceneBackground,
+  transitionToNext: SceneTransition,
+): Scene {
+  return {
+    id,
+    name,
+    start,
+    end,
+    background,
+    transitionToNext,
+  };
+}
+
+const minimumSceneDuration = 0.25;
+
+function getSceneAtTime(scenes: Scene[], time: number) {
+  return scenes.find((scene) => time >= scene.start && time < scene.end) ?? scenes[scenes.length - 1] ?? null;
+}
+
+function clampSceneSplitTime(scene: Scene, time: number) {
+  const earliestSplit = scene.start + minimumSceneDuration;
+  const latestSplit = scene.end - minimumSceneDuration;
+
+  if (latestSplit < earliestSplit) {
+    return null;
+  }
+
+  return Math.min(latestSplit, Math.max(earliestSplit, time));
+}
+
+function clampSceneBoundaryTime(leftScene: Scene, rightScene: Scene, time: number) {
+  const earliest = leftScene.start + minimumSceneDuration;
+  const latest = rightScene.end - minimumSceneDuration;
+
+  return Number(Math.min(latest, Math.max(earliest, time)).toFixed(2));
+}
+
+function buildFallbackScenes(project: Project) {
+  if (project.id === "motion-editor-project") {
+    const splitTime = Math.max(1.5, Number((project.duration / 2).toFixed(2)));
+    return [
+      createScene(
+        "scene-intro",
+        "Intro",
+        0,
+        splitTime,
+        createDefaultSceneBackground(project.background || "#f3efe3", "#d8c7a7", "drift"),
+        createDefaultSceneTransition("slideFromRight", 0.8),
+      ),
+      createScene(
+        "scene-reveal",
+        "Reveal",
+        splitTime,
+        project.duration,
+        createDefaultSceneBackground("#dbeafe", "#8b5cf6", "pulse"),
+        createDefaultSceneTransition(),
+      ),
+    ];
+  }
+
+  return [
+    createScene(
+      "scene-1",
+      "Scene 1",
+      0,
+      project.duration,
+      createDefaultSceneBackground(project.background || "#f3efe3"),
+      createDefaultSceneTransition(),
+    ),
+  ];
+}
+
+function normalizeScenes(project: Project): Scene[] {
+  const rawScenes = project.scenes && project.scenes.length > 0 ? project.scenes : buildFallbackScenes(project);
+  const sortedScenes = [...rawScenes].sort((left, right) => left.start - right.start);
+
+  return sortedScenes.map((scene, index) => {
+    const previousScene = sortedScenes[index - 1];
+    const nextScene = sortedScenes[index + 1];
+    const start = index === 0 ? 0 : Math.max(previousScene?.end ?? 0, scene.start);
+    const unclampedEnd = nextScene ? Math.max(start + minimumSceneDuration, nextScene.start) : project.duration;
+    const end = index === sortedScenes.length - 1 ? Math.max(project.duration, start + minimumSceneDuration) : unclampedEnd;
+
+    return {
+      ...scene,
+      start,
+      end,
+      background: {
+        ...createDefaultSceneBackground(project.background || "#f3efe3"),
+        ...scene.background,
+      },
+      transitionToNext: {
+        ...createDefaultSceneTransition(),
+        ...scene.transitionToNext,
+      },
+    };
+  });
+}
+
+function stretchScenesToDuration(scenes: Scene[], duration: number) {
+  if (scenes.length === 0) {
+    return scenes;
+  }
+
+  return scenes.map((scene, index) =>
+    index === scenes.length - 1
+      ? {
+          ...scene,
+          end: Math.max(duration, scene.start + minimumSceneDuration),
+        }
+      : scene,
+  );
+}
+
 function normalizeProject(project: Project): Project {
+  const scenes = normalizeScenes(project);
   const layers = project.layers
     .filter((layer) => !(project.id === "motion-editor-project" && layer.id === "orb"))
     .map((layer) => ({
@@ -156,6 +310,8 @@ function normalizeProject(project: Project): Project {
 
   return {
     ...project,
+    background: scenes[0]?.background.color ?? project.background,
+    scenes,
     layers,
   };
 }
@@ -283,9 +439,13 @@ function applyNumericValue(
   };
 }
 
-export const useEditorStore = create<EditorState>((set) => ({
-  project: getInitialProject(),
+export const useEditorStore = create<EditorState>((set) => {
+  const initialProject = getInitialProject();
+
+  return {
+  project: initialProject,
   selectedLayerIds: ["headline"],
+  selectedSceneId: null,
   selectedClipId: null,
   selectedKeyframeId: null,
   currentTime: 0,
@@ -309,6 +469,9 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     });
   },
+  selectScene: (sceneId) => {
+    set({ selectedSceneId: sceneId });
+  },
   selectClip: (clipId) => {
     set({ selectedClipId: clipId });
   },
@@ -320,6 +483,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({
       project: normalizedProject,
       selectedLayerIds: normalizedProject.layers[0] ? [normalizedProject.layers[0].id] : [],
+      selectedSceneId: null,
       selectedClipId: null,
       selectedKeyframeId: null,
       currentTime: 0,
@@ -615,6 +779,7 @@ export const useEditorStore = create<EditorState>((set) => ({
         project: {
           ...state.project,
           duration: nextDuration,
+          scenes: stretchScenesToDuration(state.project.scenes, nextDuration),
           timeline: {
             ...state.project.timeline,
             duration: nextDuration,
@@ -996,6 +1161,228 @@ export const useEditorStore = create<EditorState>((set) => ({
       },
     }));
   },
+  createSceneAtPlayhead: () => {
+    set((state) => {
+      const targetScene =
+        getSceneAtTime(state.project.scenes, state.currentTime) ??
+        state.project.scenes.find((scene) => scene.id === state.selectedSceneId) ??
+        null;
+
+      if (!targetScene) {
+        return state;
+      }
+
+      const splitTime = clampSceneSplitTime(targetScene, state.currentTime);
+
+      if (splitTime === null) {
+        return state;
+      }
+
+      const targetIndex = state.project.scenes.findIndex((scene) => scene.id === targetScene.id);
+
+      if (targetIndex < 0) {
+        return state;
+      }
+
+      const boundaryTransitionDuration = Number(
+        Math.min(0.6, splitTime - targetScene.start, targetScene.end - splitTime).toFixed(2),
+      );
+      const nextSceneId = `scene-${crypto.randomUUID()}`;
+      const nextScene = createScene(
+        nextSceneId,
+        `Scene ${state.project.scenes.length + 1}`,
+        splitTime,
+        targetScene.end,
+        { ...targetScene.background },
+        { ...targetScene.transitionToNext },
+      );
+
+      const scenes = state.project.scenes.map((scene, index) =>
+        index === targetIndex
+          ? {
+              ...scene,
+              end: splitTime,
+              transitionToNext:
+                boundaryTransitionDuration > 0
+                  ? createDefaultSceneTransition("fade", boundaryTransitionDuration)
+                  : createDefaultSceneTransition(),
+            }
+          : scene,
+      );
+
+      scenes.splice(targetIndex + 1, 0, nextScene);
+
+      return {
+        project: {
+          ...state.project,
+          scenes,
+        },
+        selectedSceneId: nextSceneId,
+        currentTime: splitTime,
+      };
+    });
+  },
+  deleteScene: (sceneId) => {
+    set((state) => {
+      if (state.project.scenes.length <= 1) {
+        return state;
+      }
+
+      const targetIndex = state.project.scenes.findIndex((scene) => scene.id === sceneId);
+
+      if (targetIndex < 0) {
+        return state;
+      }
+
+      const targetScene = state.project.scenes[targetIndex];
+      const previousScene = targetIndex > 0 ? state.project.scenes[targetIndex - 1] : null;
+      const nextScene =
+        targetIndex < state.project.scenes.length - 1 ? state.project.scenes[targetIndex + 1] : null;
+
+      const scenes = state.project.scenes
+        .filter((scene) => scene.id !== sceneId)
+        .map((scene) => {
+          if (previousScene && scene.id === previousScene.id) {
+            return {
+              ...scene,
+              end: targetScene.end,
+            };
+          }
+
+          if (!previousScene && nextScene && scene.id === nextScene.id) {
+            return {
+              ...scene,
+              start: 0,
+            };
+          }
+
+          return scene;
+        });
+
+      const fallbackScene = previousScene ?? nextScene ?? scenes[0] ?? null;
+
+      return {
+        project: {
+          ...state.project,
+          background:
+            fallbackScene && scenes[0]?.id === fallbackScene.id
+              ? fallbackScene.background.color
+              : state.project.background,
+          scenes,
+        },
+        selectedSceneId: fallbackScene?.id ?? null,
+        currentTime:
+          fallbackScene
+            ? Number(
+                Math.min(
+                  Math.max(fallbackScene.start, state.currentTime),
+                  Math.max(fallbackScene.start, fallbackScene.end - 0.01),
+                ).toFixed(2),
+              )
+            : state.currentTime,
+      };
+    });
+  },
+  moveSceneBoundary: (sceneId, nextTime) => {
+    set((state) => {
+      const boundaryIndex = state.project.scenes.findIndex((scene) => scene.id === sceneId);
+
+      if (boundaryIndex < 0 || boundaryIndex >= state.project.scenes.length - 1) {
+        return state;
+      }
+
+      const leftScene = state.project.scenes[boundaryIndex];
+      const rightScene = state.project.scenes[boundaryIndex + 1];
+      const boundaryTime = clampSceneBoundaryTime(leftScene, rightScene, nextTime);
+
+      if (boundaryTime === leftScene.end) {
+        return state;
+      }
+
+      const leftDuration = boundaryTime - leftScene.start;
+      const rightDuration = rightScene.end - boundaryTime;
+      const transitionDuration = Number(
+        Math.min(leftScene.transitionToNext.duration, leftDuration, rightDuration).toFixed(2),
+      );
+
+      return {
+        project: {
+          ...state.project,
+          scenes: state.project.scenes.map((scene, index) => {
+            if (index === boundaryIndex) {
+              return {
+                ...scene,
+                end: boundaryTime,
+                transitionToNext: {
+                  ...scene.transitionToNext,
+                  duration: Math.max(0, transitionDuration),
+                },
+              };
+            }
+
+            if (index === boundaryIndex + 1) {
+              return {
+                ...scene,
+                start: boundaryTime,
+              };
+            }
+
+            return scene;
+          }),
+        },
+      };
+    });
+  },
+  updateSceneName: (sceneId, name) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        scenes: state.project.scenes.map((scene) =>
+          scene.id === sceneId ? { ...scene, name } : scene,
+        ),
+      },
+    }));
+  },
+  updateSceneBackground: (sceneId, patch) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        background:
+          state.project.scenes[0]?.id === sceneId && patch.color
+            ? patch.color
+            : state.project.background,
+        scenes: state.project.scenes.map((scene) =>
+          scene.id === sceneId
+            ? {
+                ...scene,
+                background: {
+                  ...scene.background,
+                  ...patch,
+                },
+              }
+            : scene,
+        ),
+      },
+    }));
+  },
+  updateSceneTransition: (sceneId, patch) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        scenes: state.project.scenes.map((scene) =>
+          scene.id === sceneId
+            ? {
+                ...scene,
+                transitionToNext: {
+                  ...scene.transitionToNext,
+                  ...patch,
+                },
+              }
+            : scene,
+        ),
+      },
+    }));
+  },
   addKeyframe: (layerId, property) => {
     set((state) => {
       const layer = state.project.layers.find((candidateLayer) => candidateLayer.id === layerId);
@@ -1079,4 +1466,5 @@ export const useEditorStore = create<EditorState>((set) => ({
       currentTime: Math.min(state.project.duration, Math.max(0, time)),
     }));
   },
-}));
+  };
+});

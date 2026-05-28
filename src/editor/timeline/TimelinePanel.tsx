@@ -1,16 +1,24 @@
+import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Asset, Layer } from "../model/project";
+import type { Asset, Layer, Scene } from "../model/project";
 import { clampTimelineValue } from "./timelineMath";
 
 type TimelinePanelProps = {
+  scenes: Scene[];
   layers: Layer[];
   assets: Asset[];
   duration: number;
   zoom: number;
   currentTime: number;
+  selectedSceneId: string | null;
   selectedLayerIds: string[];
   selectedClipId: string | null;
   selectedKeyframeId: string | null;
+  activeSceneId: string | null;
+  onCreateScene: () => void;
+  onDeleteScene: (sceneId: string) => void;
+  onMoveSceneBoundary: (sceneId: string, nextTime: number) => void;
+  onSelectScene: (sceneId: string | null) => void;
   onSelectLayer: (layerId: string, additive?: boolean) => void;
   onSelectClip: (clipId: string | null) => void;
   onSelectKeyframe: (keyframeId: string | null) => void;
@@ -22,19 +30,27 @@ type TimelinePanelProps = {
 
 type DragState =
   | { type: "playhead" }
+  | { type: "sceneBoundary"; sceneId: string }
   | { type: "clip"; clipId: string; clipOffset: number }
   | { type: "trim"; clipId: string; edge: "start" | "end" }
   | { type: "keyframe"; keyframeId: string };
 
 export function TimelinePanel({
+  scenes,
   layers,
   assets,
   duration,
   zoom,
   currentTime,
+  selectedSceneId,
   selectedLayerIds,
   selectedClipId,
   selectedKeyframeId,
+  activeSceneId,
+  onCreateScene,
+  onDeleteScene,
+  onMoveSceneBoundary,
+  onSelectScene,
   onSelectLayer,
   onSelectClip,
   onSelectKeyframe,
@@ -54,6 +70,19 @@ export function TimelinePanel({
     }
     return values;
   }, [duration]);
+  const currentScene = useMemo(
+    () =>
+      scenes.find((scene) => currentTime >= scene.start && currentTime < scene.end) ??
+      scenes[scenes.length - 1] ??
+      null,
+    [currentTime, scenes],
+  );
+  const headerScene = useMemo(
+    () => scenes.find((scene) => scene.id === activeSceneId) ?? currentScene,
+    [activeSceneId, currentScene, scenes],
+  );
+  const canCreateScene = currentScene ? currentScene.end - currentScene.start >= 0.5 : false;
+  const canDeleteScene = scenes.length > 1 && headerScene !== null;
 
   useEffect(() => {
     if (!dragState) {
@@ -81,6 +110,11 @@ export function TimelinePanel({
         return;
       }
 
+      if (dragState.type === "sceneBoundary") {
+        onMoveSceneBoundary(dragState.sceneId, nextTime);
+        return;
+      }
+
       if (dragState.type === "keyframe") {
         onMoveKeyframe(dragState.keyframeId, nextTime);
         return;
@@ -100,7 +134,7 @@ export function TimelinePanel({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", stopDragging);
     };
-  }, [dragState, duration, onMoveClip, onMoveKeyframe, onSeek, onTrimClip, zoom]);
+  }, [dragState, duration, onMoveClip, onMoveKeyframe, onMoveSceneBoundary, onSeek, onTrimClip, zoom]);
 
   return (
     <div className="overflow-hidden rounded-[26px] border border-white/8 bg-[#090b10]">
@@ -111,6 +145,46 @@ export function TimelinePanel({
 
       <div className="grid grid-cols-[220px_minmax(0,1fr)]">
         <div className="border-r border-white/8">
+          <div className="flex h-12 items-center justify-between border-b border-white/6 px-4">
+            <div>
+              <p className="text-sm font-medium text-white">Scenes</p>
+              <p className="text-xs text-slate-500">{scenes.length} segments</p>
+            </div>
+            <div className="flex items-center gap-1 rounded-xl border border-white/8 bg-black/20 p-1">
+              <button
+                type="button"
+                onClick={onCreateScene}
+                disabled={!canCreateScene}
+                title={
+                  canCreateScene
+                    ? "Create a new scene by splitting the current one at the playhead"
+                    : "Move the playhead inside a longer scene to split it"
+                }
+                aria-label="Create scene"
+                className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${canCreateScene ? "bg-[#6f7bf6]/18 text-[#edf0ff] hover:bg-[#6f7bf6]/28" : "text-slate-600"}`}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (headerScene) {
+                    onDeleteScene(headerScene.id);
+                  }
+                }}
+                disabled={!canDeleteScene}
+                title={
+                  canDeleteScene
+                    ? `Delete ${headerScene?.name ?? "scene"}`
+                    : "At least one scene must remain"
+                }
+                aria-label="Delete scene"
+                className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${canDeleteScene ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600"}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
           {layers.map((layer) => (
             <button
               key={layer.id}
@@ -153,6 +227,64 @@ export function TimelinePanel({
                 </div>
               ))}
             </button>
+
+            <div className="relative h-12 border-b border-white/6 bg-[linear-gradient(180deg,_rgba(255,255,255,0.02),_transparent)]">
+              {ticks.map((tick) => (
+                <div
+                  key={`scene-${tick}`}
+                  className="absolute bottom-0 top-0 w-px bg-white/5"
+                  style={{ left: tick * zoom }}
+                />
+              ))}
+
+              {scenes.map((scene, index) => {
+                const sceneLeft = scene.start * zoom;
+                const sceneWidth = Math.max(72, (scene.end - scene.start) * zoom);
+                const isActiveScene =
+                  selectedSceneId === scene.id || (!selectedSceneId && currentScene?.id === scene.id);
+
+                return (
+                  <div
+                    key={scene.id}
+                    className="absolute top-2 h-8"
+                    style={{ left: sceneLeft, width: sceneWidth }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectScene(scene.id);
+                        onSeek(scene.start);
+                      }}
+                      className={`h-full w-full rounded-[14px] border text-left transition ${index < scenes.length - 1 ? "pl-3 pr-5" : "px-3"} ${isActiveScene ? "border-violet-200/80 bg-violet-400/30 ring-2 ring-violet-200/60" : "border-white/12 bg-white/8 hover:bg-white/12"}`}
+                    >
+                      <span className="block truncate text-xs font-medium text-white">{scene.name}</span>
+                      <span className="block text-[10px] text-white/70">
+                        {scene.start.toFixed(2)}s - {scene.end.toFixed(2)}s
+                      </span>
+                    </button>
+
+                    {index < scenes.length - 1 ? (
+                      <button
+                        type="button"
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSelectScene(scene.id);
+                          setDragState({ type: "sceneBoundary", sceneId: scene.id });
+                        }}
+                        className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize items-center justify-center"
+                        title={`Resize boundary after ${scene.name}`}
+                        aria-label={`Resize boundary after ${scene.name}`}
+                      >
+                        <span
+                          className={`h-5 w-1 rounded-full transition ${isActiveScene ? "bg-violet-100/90" : "bg-white/45 hover:bg-white/70"}`}
+                        />
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
 
             <div
               className="pointer-events-none absolute top-0 z-20 h-full w-px bg-violet-300"

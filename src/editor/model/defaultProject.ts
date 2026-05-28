@@ -1,4 +1,4 @@
-import type { Layer, Project } from "./project";
+import type { Layer, Project, Scene } from "./project";
 
 function makeClip(layerId: string, name: string) {
   return {
@@ -103,16 +103,50 @@ const defaultLayers: Layer[] = [
   },
 ];
 
+const defaultScenes: Scene[] = [
+  {
+    id: "scene-intro",
+    name: "Intro",
+    start: 0,
+    end: 2.5,
+    background: {
+      color: "#f3efe3",
+      accent: "#d8c7a7",
+      animation: "drift",
+    },
+    transitionToNext: {
+      preset: "slideFromRight",
+      duration: 0.8,
+    },
+  },
+  {
+    id: "scene-reveal",
+    name: "Reveal",
+    start: 2.5,
+    end: 5,
+    background: {
+      color: "#dbeafe",
+      accent: "#8b5cf6",
+      animation: "pulse",
+    },
+    transitionToNext: {
+      preset: "none",
+      duration: 0,
+    },
+  },
+];
+
 export function createDefaultProject(): Project {
   return {
     id: "motion-editor-project",
     name: "Motion Graphics Editor",
-    version: 1,
+    version: 2,
     width: 1080,
     height: 1080,
     fps: 30,
     duration: 5,
     background: "#f3efe3",
+    scenes: structuredClone(defaultScenes),
     layers: structuredClone(defaultLayers),
     assets: [],
     timeline: {

@@ -12,6 +12,28 @@ export type TransitionPreset =
   | "zoomIn"
   | "zoomOut";
 
+export type BackgroundAnimationPreset = "none" | "drift" | "pulse";
+
+export type SceneTransition = {
+  preset: TransitionPreset;
+  duration: number;
+};
+
+export type SceneBackground = {
+  color: string;
+  accent: string;
+  animation: BackgroundAnimationPreset;
+};
+
+export type Scene = {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+  background: SceneBackground;
+  transitionToNext: SceneTransition;
+};
+
 export type AnimatableProperty =
   | "x"
   | "y"
@@ -156,6 +178,7 @@ export type Project = {
   fps: number;
   duration: number;
   background: string;
+  scenes: Scene[];
   layers: Layer[];
   assets: Asset[];
   timeline: Timeline;

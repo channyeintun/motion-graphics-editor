@@ -1,16 +1,19 @@
 import { OrbitControls, Text, useTexture } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
-import { useLayoutEffect, useMemo, useState } from "react";
+import { type ReactNode, useLayoutEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { useSelector } from "@xstate/store-react";
 import { viewportStore } from "../store/viewportStore";
 import type { PreviewObject } from "../model/preview";
+import type { SampledSceneState } from "../engine/sceneSampler";
 
 const FRAME_WIDTH = 14;
 const FRAME_HEIGHT = 8.4;
 
 type PreviewViewportProps = {
   objects: PreviewObject[];
+  outgoingObjects: PreviewObject[];
+  sceneState: SampledSceneState;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, nextX: number, nextY: number) => void;
@@ -66,6 +69,8 @@ type DragState =
 
 export function PreviewViewport({
   objects,
+  outgoingObjects,
+  sceneState,
   selectedId,
   onSelect,
   onMove,
@@ -176,22 +181,24 @@ export function PreviewViewport({
 
   return (
     <div className="relative flex h-full min-h-[66vh] items-center justify-center p-3 pt-14 md:p-4 md:pt-16 lg:p-5 lg:pt-18">
-      <div className="relative aspect-[16/9] w-full rounded-[38px] border-[12px] border-black bg-[#f3efe3] shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
+      <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[38px] border-[12px] border-black bg-[#f3efe3] shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
+        <SceneBackdrops sceneState={sceneState} />
         <div className="absolute inset-0 rounded-[26px] border border-black/10" />
         <Canvas
           orthographic
           camera={{ position: [0, 0, 20], zoom: 72 }}
+          gl={{ alpha: true, antialias: true }}
           dpr={[1, 2]}
           className="rounded-[26px]"
           style={{ cursor: previewCursor }}
           onCreated={(state) => {
+            state.gl.setClearAlpha(0);
             onCanvasReady?.(state.gl.domElement);
           }}
           onPointerUp={stopDragging}
           onPointerLeave={stopDragging}
         >
           <ResponsiveCamera />
-          <color attach="background" args={["#f3efe3"]} />
           <ambientLight intensity={1.4} />
           <directionalLight position={[2, 4, 10]} intensity={0.65} />
 
@@ -233,30 +240,62 @@ export function PreviewViewport({
                 ))
               : null}
 
-            {objects.map((object) => (
-              <PreviewNode
-                key={object.id}
-                object={object}
-                selected={object.id === selectedId}
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                  onSelect(object.id);
+            {sceneState.outgoingScene ? (
+              <SceneFrame
+                role="outgoing"
+                preset={sceneState.transitionPreset}
+                progress={sceneState.transitionProgress}
+              >
+                {outgoingObjects.map((object) => (
+                  <PreviewNode
+                    key={`outgoing-${object.id}`}
+                    object={object}
+                    selected={false}
+                    opacityMultiplier={getSceneFrameVisual(
+                      "outgoing",
+                      sceneState.transitionPreset,
+                      sceneState.transitionProgress,
+                    ).opacity}
+                  />
+                ))}
+              </SceneFrame>
+            ) : null}
 
-                  if (interactionMode !== "select" || object.locked) {
-                    return;
-                  }
+            <SceneFrame
+              role="incoming"
+              preset={sceneState.transitionPreset}
+              progress={sceneState.transitionProgress}
+            >
+              {objects.map((object) => (
+                <PreviewNode
+                  key={object.id}
+                  object={object}
+                  selected={object.id === selectedId}
+                  opacityMultiplier={getSceneFrameVisual(
+                    "incoming",
+                    sceneState.transitionPreset,
+                    sceneState.transitionProgress,
+                  ).opacity}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    onSelect(object.id);
 
-                  if (transformMode === "translate") {
-                    setDragState({
-                      type: "move",
-                      id: object.id,
-                      offsetX: object.x - (event.point.x - viewportOffset.x),
-                      offsetY: object.y - (event.point.y - viewportOffset.y),
-                    });
-                  }
-                }}
-              />
-            ))}
+                    if (interactionMode !== "select" || object.locked) {
+                      return;
+                    }
+
+                    if (transformMode === "translate") {
+                      setDragState({
+                        type: "move",
+                        id: object.id,
+                        offsetX: object.x - (event.point.x - viewportOffset.x),
+                        offsetY: object.y - (event.point.y - viewportOffset.y),
+                      });
+                    }
+                  }}
+                />
+              ))}
+            </SceneFrame>
 
             {selectedObject && !selectedObject.locked && interactionMode === "select" ? (
               <TransformHandles
@@ -316,6 +355,75 @@ function ResponsiveCamera() {
   }, [camera, size.height, size.width]);
 
   return null;
+}
+
+function SceneBackdrops({ sceneState }: { sceneState: SampledSceneState }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[26px]">
+      {sceneState.outgoingScene ? (
+        <SceneBackdropLayer
+          sceneState={sceneState}
+          role="outgoing"
+          localTime={sceneState.outgoingSceneLocalTime}
+        />
+      ) : null}
+      <SceneBackdropLayer
+        sceneState={sceneState}
+        role="incoming"
+        localTime={sceneState.currentSceneLocalTime}
+      />
+    </div>
+  );
+}
+
+function SceneBackdropLayer({
+  sceneState,
+  role,
+  localTime,
+}: {
+  sceneState: SampledSceneState;
+  role: "incoming" | "outgoing";
+  localTime: number;
+}) {
+  const scene = role === "incoming" ? sceneState.currentScene : sceneState.outgoingScene;
+
+  if (!scene) {
+    return null;
+  }
+
+  const visual = getSceneFrameVisual(role, sceneState.transitionPreset, sceneState.transitionProgress);
+  const motion = getBackgroundMotion(scene.background.animation, localTime);
+
+  return (
+    <div
+      className="absolute inset-0"
+      style={{
+        opacity: visual.opacity,
+        transform: `translate3d(${((visual.x / FRAME_WIDTH) * 100 + motion.x).toFixed(3)}%, ${((visual.y / FRAME_HEIGHT) * 100 + motion.y).toFixed(3)}%, 0) scale(${(visual.scale * motion.scale).toFixed(3)})`,
+        backgroundImage: buildSceneBackground(scene.background.color, scene.background.accent),
+      }}
+    />
+  );
+}
+
+function SceneFrame({
+  role,
+  preset,
+  progress,
+  children,
+}: {
+  role: "incoming" | "outgoing";
+  preset: SampledSceneState["transitionPreset"];
+  progress: number;
+  children: ReactNode;
+}) {
+  const visual = getSceneFrameVisual(role, preset, progress);
+
+  return (
+    <group position={[visual.x, visual.y, 0]} scale={[visual.scale, visual.scale, 1]}>
+      {children}
+    </group>
+  );
 }
 
 type TransformHandlesProps = {
@@ -497,15 +605,17 @@ function TransformHandles({
 type PreviewNodeProps = {
   object: PreviewObject;
   selected: boolean;
-  onPointerDown: (event: ThreeEvent<PointerEvent>) => void;
+  opacityMultiplier?: number;
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
 };
 
 type PreviewContentProps = {
   object: PreviewObject;
-  onPointerDown: (event: ThreeEvent<PointerEvent>) => void;
+  opacityMultiplier: number;
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void;
 };
 
-function PreviewNode({ object, selected, onPointerDown }: PreviewNodeProps) {
+function PreviewNode({ object, selected, opacityMultiplier = 1, onPointerDown }: PreviewNodeProps) {
   const transformMatrix = useMemo(() => {
     const rotationMatrix = new THREE.Matrix4().makeRotationZ(object.rotation);
     const skewMatrix = new THREE.Matrix4().set(
@@ -534,25 +644,25 @@ function PreviewNode({ object, selected, onPointerDown }: PreviewNodeProps) {
   return (
     <group position={[object.x, object.y, object.type === "model" ? 0.65 : 0.5]}>
       <group matrixAutoUpdate={false} matrix={transformMatrix}>
-        {selected ? <SelectionFrame object={object} /> : null}
+        {selected ? <SelectionFrame object={object} opacityMultiplier={opacityMultiplier} /> : null}
         {object.type === "text" ? (
-          <PreviewText object={object} onPointerDown={onPointerDown} />
+          <PreviewText object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
         ) : null}
         {object.type === "shape" ? (
-          <PreviewShape object={object} onPointerDown={onPointerDown} />
+          <PreviewShape object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
         ) : null}
         {object.type === "image" ? (
-          <PreviewImage object={object} onPointerDown={onPointerDown} />
+          <PreviewImage object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
         ) : null}
         {object.type === "model" ? (
-          <PreviewModel object={object} onPointerDown={onPointerDown} />
+          <PreviewModel object={object} opacityMultiplier={opacityMultiplier} onPointerDown={onPointerDown} />
         ) : null}
       </group>
     </group>
   );
 }
 
-function PreviewText({ object, onPointerDown }: PreviewContentProps) {
+function PreviewText({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
   return (
     <Text
       position={[0, 0, 0.3]}
@@ -562,7 +672,7 @@ function PreviewText({ object, onPointerDown }: PreviewContentProps) {
       color={object.color}
       anchorX="center"
       anchorY="middle"
-      fillOpacity={object.opacity}
+      fillOpacity={object.opacity * opacityMultiplier}
       outlineBlur={0.008}
       outlineWidth={0.012}
       outlineColor="rgba(255,255,255,0.4)"
@@ -573,11 +683,11 @@ function PreviewText({ object, onPointerDown }: PreviewContentProps) {
   );
 }
 
-function PreviewShape({ object, onPointerDown }: PreviewContentProps) {
+function PreviewShape({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
   const materialProps = {
     color: object.color,
     transparent: true,
-    opacity: object.opacity,
+    opacity: object.opacity * opacityMultiplier,
   };
 
   const starShape = useMemo(() => {
@@ -649,7 +759,7 @@ function PreviewShape({ object, onPointerDown }: PreviewContentProps) {
   );
 }
 
-function PreviewImage({ object, onPointerDown }: PreviewContentProps) {
+function PreviewImage({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
   const texture = useTexture(object.src ?? "");
 
   return (
@@ -659,18 +769,18 @@ function PreviewImage({ object, onPointerDown }: PreviewContentProps) {
         map={texture}
         color={object.color}
         transparent
-        opacity={object.opacity}
+        opacity={object.opacity * opacityMultiplier}
         toneMapped={false}
       />
     </mesh>
   );
 }
 
-function PreviewModel({ object, onPointerDown }: PreviewContentProps) {
+function PreviewModel({ object, opacityMultiplier, onPointerDown }: PreviewContentProps) {
   const materialProps = {
     color: object.color,
     transparent: true,
-    opacity: object.opacity,
+    opacity: object.opacity * opacityMultiplier,
     roughness: object.roughness ?? 0.4,
     metalness: object.metalness ?? 0.1,
     emissive: object.emissive ?? "#000000",
@@ -742,14 +852,20 @@ function PreviewModel({ object, onPointerDown }: PreviewContentProps) {
   return null;
 }
 
-function SelectionFrame({ object }: { object: PreviewObject }) {
+function SelectionFrame({
+  object,
+  opacityMultiplier,
+}: {
+  object: PreviewObject;
+  opacityMultiplier: number;
+}) {
   const bounds = getObjectBounds(object);
 
   if (object.type === "model") {
     return (
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[bounds.width, bounds.height, bounds.depth ?? 1.3]} />
-        <meshBasicMaterial color="#7c3aed" transparent opacity={0.3} wireframe />
+        <meshBasicMaterial color="#7c3aed" transparent opacity={0.3 * opacityMultiplier} wireframe />
       </mesh>
     );
   }
@@ -757,7 +873,7 @@ function SelectionFrame({ object }: { object: PreviewObject }) {
   return (
     <mesh position={[0, 0, 0.1]}>
       <planeGeometry args={[bounds.width, bounds.height]} />
-      <meshBasicMaterial color="#7c3aed" transparent opacity={0.12} wireframe />
+      <meshBasicMaterial color="#7c3aed" transparent opacity={0.12 * opacityMultiplier} wireframe />
     </mesh>
   );
 }
@@ -827,6 +943,144 @@ function getObjectBounds(object: PreviewObject) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getSceneFrameVisual(
+  role: "incoming" | "outgoing",
+  preset: SampledSceneState["transitionPreset"],
+  progress: number,
+) {
+  const safeProgress = clamp(progress, 0, 1);
+
+  if (preset === "fade") {
+    return {
+      x: 0,
+      y: 0,
+      scale: 1,
+      opacity: role === "incoming" ? safeProgress : 1 - safeProgress,
+    };
+  }
+
+  if (preset === "slideFromLeft") {
+    return {
+      x: role === "incoming" ? -(1 - safeProgress) * FRAME_WIDTH : safeProgress * FRAME_WIDTH * 0.65,
+      y: 0,
+      scale: 1,
+      opacity: 1,
+    };
+  }
+
+  if (preset === "slideFromRight") {
+    return {
+      x: role === "incoming" ? (1 - safeProgress) * FRAME_WIDTH : -safeProgress * FRAME_WIDTH * 0.65,
+      y: 0,
+      scale: 1,
+      opacity: 1,
+    };
+  }
+
+  if (preset === "slideFromTop") {
+    return {
+      x: 0,
+      y: role === "incoming" ? (1 - safeProgress) * FRAME_HEIGHT : -safeProgress * FRAME_HEIGHT * 0.65,
+      scale: 1,
+      opacity: 1,
+    };
+  }
+
+  if (preset === "slideFromBottom") {
+    return {
+      x: 0,
+      y: role === "incoming" ? -(1 - safeProgress) * FRAME_HEIGHT : safeProgress * FRAME_HEIGHT * 0.65,
+      scale: 1,
+      opacity: 1,
+    };
+  }
+
+  if (preset === "zoomIn") {
+    return {
+      x: 0,
+      y: 0,
+      scale: role === "incoming" ? 1.16 - safeProgress * 0.16 : 1 + safeProgress * 0.06,
+      opacity: role === "incoming" ? safeProgress : 1 - safeProgress,
+    };
+  }
+
+  if (preset === "zoomOut") {
+    return {
+      x: 0,
+      y: 0,
+      scale: role === "incoming" ? 0.84 + safeProgress * 0.16 : 1.08 - safeProgress * 0.08,
+      opacity: role === "incoming" ? safeProgress : 1 - safeProgress,
+    };
+  }
+
+  return {
+    x: 0,
+    y: 0,
+    scale: 1,
+    opacity: role === "incoming" ? 1 : 0,
+  };
+}
+
+function getBackgroundMotion(animation: "none" | "drift" | "pulse", localTime: number) {
+  if (animation === "drift") {
+    return {
+      x: Math.sin(localTime * 0.35) * 2.5,
+      y: Math.cos(localTime * 0.28) * 1.8,
+      scale: 1.06,
+    };
+  }
+
+  if (animation === "pulse") {
+    return {
+      x: 0,
+      y: 0,
+      scale: 1.03 + Math.sin(localTime * 1.4) * 0.03,
+    };
+  }
+
+  return {
+    x: 0,
+    y: 0,
+    scale: 1,
+  };
+}
+
+function buildSceneBackground(color: string, accent: string) {
+  const mixed = mixHexColors(color, accent, 0.32);
+  return [
+    `radial-gradient(circle at 18% 18%, ${accent} 0%, transparent 36%)`,
+    `radial-gradient(circle at 80% 24%, ${mixed} 0%, transparent 30%)`,
+    `linear-gradient(145deg, ${color} 0%, ${mixed} 100%)`,
+  ].join(", ");
+}
+
+function mixHexColors(first: string, second: string, amount: number) {
+  const left = parseHexColor(first);
+  const right = parseHexColor(second);
+  const mix = (leftValue: number, rightValue: number) =>
+    Math.round(leftValue + (rightValue - leftValue) * amount)
+      .toString(16)
+      .padStart(2, "0");
+
+  return `#${mix(left.r, right.r)}${mix(left.g, right.g)}${mix(left.b, right.b)}`;
+}
+
+function parseHexColor(value: string) {
+  const normalized = value.replace("#", "");
+  const hex = normalized.length === 3
+    ? normalized
+        .split("")
+        .map((part) => `${part}${part}`)
+        .join("")
+    : normalized.padEnd(6, "0").slice(0, 6);
+
+  return {
+    r: Number.parseInt(hex.slice(0, 2), 16),
+    g: Number.parseInt(hex.slice(2, 4), 16),
+    b: Number.parseInt(hex.slice(4, 6), 16),
+  };
 }
 
 function getScaleHandleCursor(handle: ScaleHandle): PreviewCursor {

@@ -3,6 +3,7 @@ import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Clapperboard,
   Box,
   Boxes,
   Camera,
@@ -37,8 +38,15 @@ import {
   Volume2,
 } from "lucide-react";
 import { sampleLayer } from "../editor/engine/animationSampler";
+import { sampleSceneState } from "../editor/engine/sceneSampler";
 import { toPreviewObject } from "../editor/model/preview";
-import type { Easing, Project, TransitionPreset } from "../editor/model/project";
+import type {
+  BackgroundAnimationPreset,
+  Easing,
+  Project,
+  Scene,
+  TransitionPreset,
+} from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 import { useSelector } from "@xstate/store-react";
@@ -94,6 +102,15 @@ const TRANSITION_OPTIONS: { value: TransitionPreset; label: string }[] = [
   { value: "zoomOut", label: "Zoom Out" },
 ];
 
+const BACKGROUND_ANIMATION_OPTIONS: {
+  value: BackgroundAnimationPreset;
+  label: string;
+}[] = [
+  { value: "none", label: "Static" },
+  { value: "drift", label: "Drift" },
+  { value: "pulse", label: "Pulse" },
+];
+
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -119,6 +136,7 @@ export function AppShell() {
   const isPlaying = useEditorStore((state) => state.isPlaying);
   const loopPlayback = useEditorStore((state) => state.loopPlayback);
   const selectedLayerIds = useEditorStore((state) => state.selectedLayerIds);
+  const selectedSceneId = useEditorStore((state) => state.selectedSceneId);
   const selectedClipId = useEditorStore((state) => state.selectedClipId);
   const selectedKeyframeId = useEditorStore((state) => state.selectedKeyframeId);
   const addTextLayer = useEditorStore((state) => state.addTextLayer);
@@ -127,6 +145,7 @@ export function AppShell() {
   const addImageLayer = useEditorStore((state) => state.addImageLayer);
   const addAudioLayer = useEditorStore((state) => state.addAudioLayer);
   const selectLayer = useEditorStore((state) => state.selectLayer);
+  const selectScene = useEditorStore((state) => state.selectScene);
   const selectClip = useEditorStore((state) => state.selectClip);
   const selectKeyframe = useEditorStore((state) => state.selectKeyframe);
   const renameLayer = useEditorStore((state) => state.renameLayer);
@@ -161,6 +180,12 @@ export function AppShell() {
   const trimClip = useEditorStore((state) => state.trimClip);
   const setClipEnabled = useEditorStore((state) => state.setClipEnabled);
   const updateClipTransition = useEditorStore((state) => state.updateClipTransition);
+  const createSceneAtPlayhead = useEditorStore((state) => state.createSceneAtPlayhead);
+  const deleteScene = useEditorStore((state) => state.deleteScene);
+  const moveSceneBoundary = useEditorStore((state) => state.moveSceneBoundary);
+  const updateSceneName = useEditorStore((state) => state.updateSceneName);
+  const updateSceneBackground = useEditorStore((state) => state.updateSceneBackground);
+  const updateSceneTransition = useEditorStore((state) => state.updateSceneTransition);
   const addKeyframe = useEditorStore((state) => state.addKeyframe);
   const moveKeyframe = useEditorStore((state) => state.moveKeyframe);
   const updateKeyframeEasing = useEditorStore((state) => state.updateKeyframeEasing);
@@ -169,14 +194,29 @@ export function AppShell() {
   const setLoopPlayback = useEditorStore((state) => state.setLoopPlayback);
   const seek = useEditorStore((state) => state.seek);
 
+  const sceneState = useMemo(() => sampleSceneState(project, currentTime), [currentTime, project]);
   const sampledLayers = useMemo(
-    () => project.layers.map((layer) => sampleLayer(layer, currentTime)),
-    [currentTime, project.layers],
+    () => project.layers.map((layer) => sampleLayer(layer, sceneState.incomingTime)),
+    [project.layers, sceneState.incomingTime],
+  );
+  const outgoingSampledLayers = useMemo(
+    () =>
+      sceneState.outgoingScene
+        ? project.layers.map((layer) => sampleLayer(layer, sceneState.outgoingTime))
+        : [],
+    [project.layers, sceneState.outgoingScene, sceneState.outgoingTime],
   );
 
   const previewObjects = useMemo(
     () => sampledLayers.map((layer) => toPreviewObject(layer)).filter((object) => object !== null),
     [sampledLayers],
+  );
+  const outgoingPreviewObjects = useMemo(
+    () =>
+      outgoingSampledLayers
+        .map((layer) => toPreviewObject(layer))
+        .filter((object) => object !== null),
+    [outgoingSampledLayers],
   );
 
   const selectedId = selectedLayerIds[0] ?? null;
@@ -203,8 +243,22 @@ export function AppShell() {
       return null;
     }
 
-    return toPreviewObject(sampleLayer(selectedLayer, currentTime), true);
-  }, [currentTime, selectedLayer]);
+    return toPreviewObject(sampleLayer(selectedLayer, sceneState.incomingTime), true);
+  }, [sceneState.incomingTime, selectedLayer]);
+  const activeScene = useMemo(
+    () =>
+      project.scenes.find((scene) => scene.id === selectedSceneId) ?? sceneState.currentScene ?? null,
+    [project.scenes, sceneState.currentScene, selectedSceneId],
+  );
+  const activeSceneIndex = useMemo(
+    () => (activeScene ? project.scenes.findIndex((scene) => scene.id === activeScene.id) : -1),
+    [activeScene, project.scenes],
+  );
+  const previousScene = activeSceneIndex > 0 ? project.scenes[activeSceneIndex - 1] : null;
+  const nextScene =
+    activeSceneIndex >= 0 && activeSceneIndex < project.scenes.length - 1
+      ? project.scenes[activeSceneIndex + 1]
+      : null;
   const selectedValues = useMemo(
     () => ({
       x: selectedObject?.x ?? selectedLayer?.object.transform.x ?? 0,
@@ -684,6 +738,8 @@ export function AppShell() {
 
           <PreviewViewport
             objects={previewObjects}
+            outgoingObjects={outgoingPreviewObjects}
+            sceneState={sceneState}
             selectedId={selectedId}
             onSelect={selectLayer}
             onMove={moveLayerObject}
@@ -840,6 +896,18 @@ export function AppShell() {
             <section className="h-full min-h-[62vh] overflow-hidden rounded-[30px] border border-white/6 bg-[#101218] shadow-[0_32px_100px_rgba(0,0,0,0.42)]">
               {selectedLayer ? (
                 <div className="space-y-4 p-5 text-sm text-slate-200 md:max-h-[62vh] md:overflow-y-auto">
+                {activeScene ? (
+                  <SceneInspectorSection
+                    scene={activeScene}
+                    previousScene={previousScene}
+                    nextScene={nextScene}
+                    onRename={updateSceneName}
+                    onDelete={deleteScene}
+                    onMoveBoundary={moveSceneBoundary}
+                    onUpdateBackground={updateSceneBackground}
+                    onUpdateTransition={updateSceneTransition}
+                  />
+                ) : null}
                 <div className="space-y-3">
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
@@ -1442,15 +1510,29 @@ export function AppShell() {
                 </InspectorSection>
                 </div>
               ) : (
-                <div className="flex min-h-[62vh] flex-col items-center justify-center gap-3 p-6 text-center">
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
-                    Inspector
-                  </p>
-                  <p className="text-base font-semibold text-white">Nothing selected</p>
-                  <p className="max-w-[18rem] text-sm leading-6 text-slate-400">
-                    Select a layer or clip to inspect transforms, animation timing, and export
-                    controls.
-                  </p>
+                <div className="space-y-4 p-5 text-sm text-slate-200 md:max-h-[62vh] md:overflow-y-auto">
+                  {activeScene ? (
+                    <SceneInspectorSection
+                      scene={activeScene}
+                      previousScene={previousScene}
+                      nextScene={nextScene}
+                      onRename={updateSceneName}
+                      onDelete={deleteScene}
+                      onMoveBoundary={moveSceneBoundary}
+                      onUpdateBackground={updateSceneBackground}
+                      onUpdateTransition={updateSceneTransition}
+                    />
+                  ) : null}
+                  <div className="flex min-h-[16rem] flex-col items-center justify-center gap-3 rounded-2xl border border-white/8 bg-black/18 p-6 text-center">
+                    <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
+                      Layer Inspector
+                    </p>
+                    <p className="text-base font-semibold text-white">Nothing selected</p>
+                    <p className="max-w-[18rem] text-sm leading-6 text-slate-400">
+                      Select a layer or clip to inspect transforms and keyframes. Scene controls stay
+                      available above.
+                    </p>
+                  </div>
                 </div>
               )}
             </section>
@@ -1519,14 +1601,21 @@ export function AppShell() {
           </div>
 
           <TimelinePanel
+            scenes={project.scenes}
             layers={project.layers}
             assets={project.assets}
             duration={project.duration}
             zoom={timelineZoom}
             currentTime={currentTime}
+            selectedSceneId={selectedSceneId}
             selectedLayerIds={selectedLayerIds}
             selectedClipId={selectedClipId}
             selectedKeyframeId={selectedKeyframeId}
+            activeSceneId={activeScene?.id ?? null}
+            onCreateScene={createSceneAtPlayhead}
+            onDeleteScene={deleteScene}
+            onMoveSceneBoundary={moveSceneBoundary}
+            onSelectScene={selectScene}
             onSelectLayer={selectLayer}
             onSelectClip={selectClip}
             onSelectKeyframe={selectKeyframe}
@@ -1689,5 +1778,173 @@ function InspectorSection({
       <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">{title}</p>
       <div className="mt-3">{children}</div>
     </section>
+  );
+}
+
+function SceneInspectorSection({
+  scene,
+  previousScene,
+  nextScene,
+  onRename,
+  onDelete,
+  onMoveBoundary,
+  onUpdateBackground,
+  onUpdateTransition,
+}: {
+  scene: Scene;
+  previousScene: Scene | null;
+  nextScene: Scene | null;
+  onRename: (sceneId: string, name: string) => void;
+  onDelete: (sceneId: string) => void;
+  onMoveBoundary: (sceneId: string, nextTime: number) => void;
+  onUpdateBackground: (
+    sceneId: string,
+    patch: Partial<Scene["background"]>,
+  ) => void;
+  onUpdateTransition: (
+    sceneId: string,
+    patch: Partial<Scene["transitionToNext"]>,
+  ) => void;
+}) {
+  return (
+    <InspectorSection title="Scene">
+      <div className="grid grid-cols-2 gap-3">
+        <MiniField label="Scene Name" className="col-span-2">
+          <div className="flex items-center gap-2">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/8 bg-white/6 text-slate-200">
+              <Clapperboard className="h-4 w-4" />
+            </span>
+            <input
+              value={scene.name}
+              onChange={(event) => onRename(scene.id, event.target.value)}
+              className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+            />
+            <button
+              type="button"
+              onClick={() => onDelete(scene.id)}
+              disabled={!previousScene && !nextScene}
+              title={
+                previousScene || nextScene
+                  ? `Delete ${scene.name}`
+                  : "At least one scene must remain"
+              }
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition ${previousScene || nextScene ? "border-white/8 bg-black/30 text-slate-300 hover:border-rose-300/35 hover:bg-rose-500/12 hover:text-rose-100" : "border-white/8 bg-black/20 text-slate-600"}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </MiniField>
+        <MiniField label="Start">
+          <input
+            type="number"
+            step="0.05"
+            value={scene.start.toFixed(2)}
+            disabled={!previousScene}
+            onChange={(event) => {
+              const nextValue = Number(event.target.value);
+
+              if (!Number.isFinite(nextValue) || !previousScene) {
+                return;
+              }
+
+              onMoveBoundary(previousScene.id, nextValue);
+            }}
+            title={
+              previousScene
+                ? "Move the shared boundary with the previous scene"
+                : "The first scene is anchored to the project start"
+            }
+            className={`h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white ${!previousScene ? "cursor-not-allowed text-slate-500" : ""}`}
+          />
+        </MiniField>
+        <MiniField label="End">
+          <input
+            type="number"
+            step="0.05"
+            value={scene.end.toFixed(2)}
+            disabled={!nextScene}
+            onChange={(event) => {
+              const nextValue = Number(event.target.value);
+
+              if (!Number.isFinite(nextValue) || !nextScene) {
+                return;
+              }
+
+              onMoveBoundary(scene.id, nextValue);
+            }}
+            title={
+              nextScene
+                ? "Move the shared boundary with the next scene"
+                : "The last scene is anchored to the project end"
+            }
+            className={`h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white ${!nextScene ? "cursor-not-allowed text-slate-500" : ""}`}
+          />
+        </MiniField>
+        <MiniField label="Background">
+          <input
+            type="color"
+            value={scene.background.color}
+            onChange={(event) => onUpdateBackground(scene.id, { color: event.target.value })}
+            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1"
+          />
+        </MiniField>
+        <MiniField label="Accent">
+          <input
+            type="color"
+            value={scene.background.accent}
+            onChange={(event) => onUpdateBackground(scene.id, { accent: event.target.value })}
+            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1"
+          />
+        </MiniField>
+        <MiniField label="BG Motion">
+          <select
+            value={scene.background.animation}
+            onChange={(event) =>
+              onUpdateBackground(scene.id, {
+                animation: event.target.value as BackgroundAnimationPreset,
+              })
+            }
+            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+          >
+            {BACKGROUND_ANIMATION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </MiniField>
+        <MiniField label="Scene Switch">
+          <select
+            value={scene.transitionToNext.preset}
+            onChange={(event) =>
+              onUpdateTransition(scene.id, {
+                preset: event.target.value as TransitionPreset,
+              })
+            }
+            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+          >
+            {TRANSITION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </MiniField>
+        <MiniField label="Switch Duration" className="col-span-2">
+          <input
+            type="number"
+            min="0"
+            step="0.05"
+            value={scene.transitionToNext.duration}
+            onChange={(event) =>
+              onUpdateTransition(scene.id, {
+                duration: Math.max(0, Number(event.target.value)),
+              })
+            }
+            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white"
+          />
+        </MiniField>
+      </div>
+    </InspectorSection>
   );
 }
