@@ -1,10 +1,13 @@
 import { OrbitControls, Text, useTexture } from "@react-three/drei";
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
-import { useMemo, useState } from "react";
+import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
+import { useLayoutEffect, useMemo, useState } from "react";
 import * as THREE from "three";
 import { useSelector } from "@xstate/store-react";
 import { viewportStore } from "../store/viewportStore";
 import type { PreviewObject } from "../model/preview";
+
+const FRAME_WIDTH = 14;
+const FRAME_HEIGHT = 8.4;
 
 type PreviewViewportProps = {
   objects: PreviewObject[];
@@ -172,8 +175,8 @@ export function PreviewViewport({
   };
 
   return (
-    <div className="relative flex h-full min-h-[66vh] items-center justify-center p-8 pt-14 md:p-10 md:pt-16 lg:p-12 lg:pt-18">
-      <div className="relative aspect-[16/9] w-full max-w-[1320px] rounded-[38px] border-[12px] border-black bg-[#f3efe3] shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
+    <div className="relative flex h-full min-h-[66vh] items-center justify-center p-3 pt-14 md:p-4 md:pt-16 lg:p-5 lg:pt-18">
+      <div className="relative aspect-[16/9] w-full rounded-[38px] border-[12px] border-black bg-[#f3efe3] shadow-[0_40px_100px_rgba(0,0,0,0.5)]">
         <div className="absolute inset-0 rounded-[26px] border border-black/10" />
         <Canvas
           orthographic
@@ -187,6 +190,7 @@ export function PreviewViewport({
           onPointerUp={stopDragging}
           onPointerLeave={stopDragging}
         >
+          <ResponsiveCamera />
           <color attach="background" args={["#f3efe3"]} />
           <ambientLight intensity={1.4} />
           <directionalLight position={[2, 4, 10]} intensity={0.65} />
@@ -300,6 +304,18 @@ export function PreviewViewport({
       </div>
     </div>
   );
+}
+
+function ResponsiveCamera() {
+  const camera = useThree((state) => state.camera as THREE.OrthographicCamera);
+  const size = useThree((state) => state.size);
+
+  useLayoutEffect(() => {
+    camera.zoom = Math.min(size.width / FRAME_WIDTH, size.height / FRAME_HEIGHT);
+    camera.updateProjectionMatrix();
+  }, [camera, size.height, size.width]);
+
+  return null;
 }
 
 type TransformHandlesProps = {

@@ -2,12 +2,26 @@ export type LayerType = "text" | "shape" | "image" | "model" | "audio" | "group"
 
 export type Easing = "linear" | "easeIn" | "easeOut" | "easeInOut";
 
+export type TransitionPreset =
+  | "none"
+  | "fade"
+  | "slideFromLeft"
+  | "slideFromRight"
+  | "slideFromTop"
+  | "slideFromBottom"
+  | "zoomIn"
+  | "zoomOut";
+
 export type AnimatableProperty =
   | "x"
   | "y"
+  | "z"
+  | "rotationX"
+  | "rotationY"
   | "rotation"
   | "scaleX"
   | "scaleY"
+  | "scaleZ"
   | "skewX"
   | "skewY"
   | "opacity"
@@ -17,9 +31,13 @@ export type AnimatableProperty =
 export type Transform = {
   x: number;
   y: number;
+  z: number;
+  rotationX: number;
+  rotationY: number;
   rotation: number;
   scaleX: number;
   scaleY: number;
+  scaleZ: number;
   skewX: number;
   skewY: number;
 };
@@ -87,6 +105,11 @@ export type Keyframe = {
   easing: Easing;
 };
 
+export type ClipTransition = {
+  preset: TransitionPreset;
+  duration: number;
+};
+
 export type Clip = {
   id: string;
   layerId: string;
@@ -94,6 +117,8 @@ export type Clip = {
   start: number;
   end: number;
   enabled: boolean;
+  transitionIn: ClipTransition;
+  transitionOut: ClipTransition;
   keyframes: Keyframe[];
 };
 

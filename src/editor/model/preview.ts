@@ -9,9 +9,13 @@ export type PreviewObject = {
   locked: boolean;
   x: number;
   y: number;
+  z: number;
+  rotationX: number;
+  rotationY: number;
   rotation: number;
   scaleX: number;
   scaleY: number;
+  scaleZ: number;
   skewX: number;
   skewY: number;
   opacity: number;
@@ -63,9 +67,13 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       locked: layer.locked,
       x: object.transform.x,
       y: object.transform.y,
+      z: object.transform.z,
+      rotationX: object.transform.rotationX,
+      rotationY: object.transform.rotationY,
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      scaleZ: object.transform.scaleZ,
       skewX: object.transform.skewX,
       skewY: object.transform.skewY,
       opacity: object.opacity,
@@ -85,9 +93,13 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       locked: layer.locked,
       x: object.transform.x,
       y: object.transform.y,
+      z: object.transform.z,
+      rotationX: object.transform.rotationX,
+      rotationY: object.transform.rotationY,
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      scaleZ: object.transform.scaleZ,
       skewX: object.transform.skewX,
       skewY: object.transform.skewY,
       opacity: object.opacity,
@@ -110,9 +122,13 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       locked: layer.locked,
       x: object.transform.x,
       y: object.transform.y,
+      z: object.transform.z,
+      rotationX: object.transform.rotationX,
+      rotationY: object.transform.rotationY,
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      scaleZ: object.transform.scaleZ,
       skewX: object.transform.skewX,
       skewY: object.transform.skewY,
       opacity: object.opacity,
@@ -147,9 +163,13 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       locked: layer.locked,
       x: object.transform.x,
       y: object.transform.y,
+      z: object.transform.z,
+      rotationX: object.transform.rotationX,
+      rotationY: object.transform.rotationY,
       rotation: object.transform.rotation,
       scaleX: object.transform.scaleX,
       scaleY: object.transform.scaleY,
+      scaleZ: object.transform.scaleZ,
       skewX: object.transform.skewX,
       skewY: object.transform.skewY,
       opacity: object.opacity,

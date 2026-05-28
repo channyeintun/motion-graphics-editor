@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { sampleLayer } from "../editor/engine/animationSampler";
 import { toPreviewObject } from "../editor/model/preview";
-import type { Easing, Project } from "../editor/model/project";
+import type { Easing, Project, TransitionPreset } from "../editor/model/project";
 import { PreviewViewport } from "../editor/preview/PreviewViewport";
 import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 import { useSelector } from "@xstate/store-react";
@@ -82,6 +82,17 @@ const SHAPE_TOOL_OPTIONS = [
 }>;
 
 const EASING_OPTIONS: Easing[] = ["linear", "easeIn", "easeOut", "easeInOut"];
+
+const TRANSITION_OPTIONS: { value: TransitionPreset; label: string }[] = [
+  { value: "none", label: "None" },
+  { value: "fade", label: "Fade" },
+  { value: "slideFromLeft", label: "Slide From Left" },
+  { value: "slideFromRight", label: "Slide From Right" },
+  { value: "slideFromTop", label: "Slide From Top" },
+  { value: "slideFromBottom", label: "Slide From Bottom" },
+  { value: "zoomIn", label: "Zoom In" },
+  { value: "zoomOut", label: "Zoom Out" },
+];
 
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -149,6 +160,7 @@ export function AppShell() {
   const moveClip = useEditorStore((state) => state.moveClip);
   const trimClip = useEditorStore((state) => state.trimClip);
   const setClipEnabled = useEditorStore((state) => state.setClipEnabled);
+  const updateClipTransition = useEditorStore((state) => state.updateClipTransition);
   const addKeyframe = useEditorStore((state) => state.addKeyframe);
   const moveKeyframe = useEditorStore((state) => state.moveKeyframe);
   const updateKeyframeEasing = useEditorStore((state) => state.updateKeyframeEasing);
@@ -612,8 +624,9 @@ export function AppShell() {
       />
 
       <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-2 p-2 md:p-3">
-        {/* ─── Preview section ─────────────────────────────── */}
-        <section className="relative min-h-[62vh] overflow-hidden rounded-[30px] border border-white/6 bg-[#0d0f14] shadow-[0_32px_100px_rgba(0,0,0,0.55)]">
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(300px,32%)] md:items-stretch xl:grid-cols-[minmax(0,1fr)_minmax(340px,28%)]">
+          {/* ─── Preview section ─────────────────────────────── */}
+          <section className="relative min-h-[62vh] overflow-hidden rounded-[30px] border border-white/6 bg-[#0d0f14] shadow-[0_32px_100px_rgba(0,0,0,0.55)]">
           {/* Top-left compact toolbar */}
           <div className="absolute left-4 top-4 z-20">
             <div className="flex items-center gap-0.5 rounded-[14px] border border-white/8 bg-black/70 p-[3px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-xl">
@@ -667,11 +680,6 @@ export function AppShell() {
                 <Grid2x2 className="h-4 w-4" />
               </button>
             </div>
-          </div>
-
-          {/* Top-right: gizmo only */}
-          <div className="absolute right-4 top-4 z-20">
-            <ViewportGizmo />
           </div>
 
           <PreviewViewport
@@ -826,25 +834,32 @@ export function AppShell() {
             </div>
           </div>
 
-          {selectedLayer && showInspectorOverlay ? (
-            <div className="absolute bottom-5 right-5 z-20 hidden w-[360px] lg:block">
-              <div className="rounded-[24px] border border-white/10 bg-[#101218]/88 p-4 text-sm text-slate-200 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl">
-                <div className="flex items-start justify-between gap-3">
+          </section>
+
+          {showInspectorOverlay ? (
+            <section className="h-full min-h-[62vh] overflow-hidden rounded-[30px] border border-white/6 bg-[#101218] shadow-[0_32px_100px_rgba(0,0,0,0.42)]">
+              {selectedLayer ? (
+                <div className="space-y-4 p-5 text-sm text-slate-200 md:max-h-[62vh] md:overflow-y-auto">
+                <div className="space-y-3">
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
-                      Selection
+                      Inspector
                     </p>
-                    <h2 className="mt-1 truncate text-base font-semibold text-white">
+                    <h2 className="mt-1 text-xl font-semibold text-white">
                       {selectedObject?.name ?? selectedLayer.name}
                     </h2>
-                    <p className="text-xs text-slate-400">
-                      {(selectedObject?.type ?? selectedLayer.type).toUpperCase()} •{" "}
-                      {inspectorClip
-                        ? `${inspectorClip.start.toFixed(2)}s - ${inspectorClip.end.toFixed(2)}s`
-                        : "No clip"}
-                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                      <span className="rounded-full border border-white/8 bg-white/6 px-2.5 py-1 uppercase tracking-[0.16em]">
+                        {(selectedObject?.type ?? selectedLayer.type).toUpperCase()}
+                      </span>
+                      <span className="rounded-full border border-white/8 bg-white/6 px-2.5 py-1">
+                        {inspectorClip
+                          ? `${inspectorClip.start.toFixed(2)}s - ${inspectorClip.end.toFixed(2)}s`
+                          : "No clip"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-wrap gap-2">
                     <ChromeIconButton
                       icon={Undo2}
                       title="Undo (⌘Z)"
@@ -875,38 +890,40 @@ export function AppShell() {
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <MiniField label="Name">
-                    <input
-                      value={selectedLayer.name}
-                      onChange={(event) =>
-                        selectedId && renameLayer(selectedId, event.target.value)
-                      }
-                      disabled={selectionLocked}
-                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    />
-                  </MiniField>
-                  <MiniField label="Stack">
-                    <div className="flex items-center gap-2">
-                      <ChromeIconButton
-                        icon={ArrowUp}
-                        title="Move layer up"
-                        onClick={() => selectedId && reorderLayer(selectedId, "up")}
+                <InspectorSection title="Layer">
+                  <div className="grid grid-cols-2 gap-3">
+                    <MiniField label="Name">
+                      <input
+                        value={selectedLayer.name}
+                        onChange={(event) =>
+                          selectedId && renameLayer(selectedId, event.target.value)
+                        }
                         disabled={selectionLocked}
+                        className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                       />
-                      <ChromeIconButton
-                        icon={ArrowDown}
-                        title="Move layer down"
-                        onClick={() => selectedId && reorderLayer(selectedId, "down")}
-                        disabled={selectionLocked}
-                      />
-                    </div>
-                  </MiniField>
-                </div>
+                    </MiniField>
+                    <MiniField label="Stack">
+                      <div className="flex items-center gap-2">
+                        <ChromeIconButton
+                          icon={ArrowUp}
+                          title="Move layer up"
+                          onClick={() => selectedId && reorderLayer(selectedId, "up")}
+                          disabled={selectionLocked}
+                        />
+                        <ChromeIconButton
+                          icon={ArrowDown}
+                          title="Move layer down"
+                          onClick={() => selectedId && reorderLayer(selectedId, "down")}
+                          disabled={selectionLocked}
+                        />
+                      </div>
+                    </MiniField>
+                  </div>
+                </InspectorSection>
 
                 {selectedLayer.type !== "audio" ? (
-                  <>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
+                  <InspectorSection title="Transform">
+                    <div className="grid grid-cols-2 gap-3">
                       <MiniField label="Opacity">
                         <input
                           type="number"
@@ -918,7 +935,7 @@ export function AppShell() {
                             selectedId && updateLayerOpacity(selectedId, Number(event.target.value))
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Color">
@@ -929,7 +946,7 @@ export function AppShell() {
                             selectedId && updateLayerColor(selectedId, event.target.value)
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="X">
@@ -941,7 +958,7 @@ export function AppShell() {
                             updateTransformProperty(selectedId, "x", Number(event.target.value))
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Y">
@@ -953,7 +970,7 @@ export function AppShell() {
                             updateTransformProperty(selectedId, "y", Number(event.target.value))
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Scale X">
@@ -970,7 +987,7 @@ export function AppShell() {
                             )
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Scale Y">
@@ -987,7 +1004,7 @@ export function AppShell() {
                             )
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Skew X">
@@ -1000,7 +1017,7 @@ export function AppShell() {
                             updateTransformProperty(selectedId, "skewX", Number(event.target.value))
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Skew Y">
@@ -1013,7 +1030,7 @@ export function AppShell() {
                             updateTransformProperty(selectedId, "skewY", Number(event.target.value))
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Rotation">
@@ -1030,34 +1047,37 @@ export function AppShell() {
                             )
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                     </div>
-                  </>
+                  </InspectorSection>
                 ) : (
-                  <div className="mt-3 rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-400">
+                  <InspectorSection title="Audio">
+                    <div className="text-xs text-slate-400">
                     Audio layers use clip timing and playback controls. Transform and visual
                     keyframe controls are not shown here.
-                  </div>
+                    </div>
+                  </InspectorSection>
                 )}
 
                 {selectedTextContent ? (
                   <>
-                    <MiniField label="Text" className="mt-3">
-                      <textarea
-                        value={selectedTextContent.value}
-                        onChange={(event) =>
-                          selectedId && updateTextLayer(selectedId, event.target.value)
-                        }
-                        rows={2}
-                        disabled={selectionLocked}
-                        className="w-full rounded-xl border border-white/8 bg-black/30 px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      />
-                    </MiniField>
-                    <div className="mt-3 rounded-2xl border border-white/8 bg-black/18 p-3">
-                      <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Type Style</p>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
+                    <InspectorSection title="Content">
+                      <MiniField label="Text">
+                        <textarea
+                          value={selectedTextContent.value}
+                          onChange={(event) =>
+                            selectedId && updateTextLayer(selectedId, event.target.value)
+                          }
+                          rows={3}
+                          disabled={selectionLocked}
+                          className="w-full rounded-xl border border-white/8 bg-black/30 px-3 py-2.5 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                    </InspectorSection>
+                    <InspectorSection title="Type Style">
+                      <div className="grid grid-cols-2 gap-3">
                         <MiniField label="Font Size">
                           <input
                             type="number"
@@ -1070,7 +1090,7 @@ export function AppShell() {
                               })
                             }
                             disabled={selectionLocked}
-                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                           />
                         </MiniField>
                         <MiniField label="Weight">
@@ -1087,7 +1107,7 @@ export function AppShell() {
                               })
                             }
                             disabled={selectionLocked}
-                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                           />
                         </MiniField>
                         <MiniField label="Letter Spacing" className="col-span-2">
@@ -1102,18 +1122,17 @@ export function AppShell() {
                               })
                             }
                             disabled={selectionLocked}
-                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                           />
                         </MiniField>
                       </div>
-                    </div>
+                    </InspectorSection>
                   </>
                 ) : null}
 
                 {selectedModelContent ? (
-                  <div className="mt-3 rounded-2xl border border-white/8 bg-black/18 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">3D Material</p>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
+                  <InspectorSection title="3D Material">
+                    <div className="grid grid-cols-2 gap-3">
                       <MiniField label="Roughness">
                         <input
                           type="number"
@@ -1128,7 +1147,7 @@ export function AppShell() {
                             })
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Metalness">
@@ -1145,7 +1164,7 @@ export function AppShell() {
                             })
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Emissive">
@@ -1159,7 +1178,7 @@ export function AppShell() {
                             })
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Glow">
@@ -1176,7 +1195,7 @@ export function AppShell() {
                             })
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         />
                       </MiniField>
                       <MiniField label="Wireframe" className="col-span-2">
@@ -1197,14 +1216,13 @@ export function AppShell() {
                         </label>
                       </MiniField>
                     </div>
-                  </div>
+                  </InspectorSection>
                 ) : null}
 
                 {selectedLayer.type !== "audio" ? (
-                  <div className="mt-3 rounded-2xl border border-white/8 bg-black/18 p-3">
-                    <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Animation</p>
+                  <InspectorSection title="Clip">
                     {inspectorClip ? (
-                      <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 gap-3">
                         <MiniField label="Delay">
                           <input
                             type="number"
@@ -1215,7 +1233,7 @@ export function AppShell() {
                               moveClip(inspectorClip.id, Number(event.target.value))
                             }
                             disabled={selectionLocked}
-                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                           />
                         </MiniField>
                         <MiniField label="Duration">
@@ -1232,7 +1250,7 @@ export function AppShell() {
                               )
                             }
                             disabled={selectionLocked}
-                            className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                           />
                         </MiniField>
                         <MiniField label="Enabled" className="col-span-2">
@@ -1249,9 +1267,75 @@ export function AppShell() {
                             <span>Clip contributes to playback and preview sampling</span>
                           </label>
                         </MiniField>
+                        <MiniField label="Transition In">
+                          <select
+                            value={inspectorClip.transitionIn?.preset ?? "none"}
+                            onChange={(event) =>
+                              updateClipTransition(inspectorClip.id, "in", {
+                                preset: event.target.value as TransitionPreset,
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {TRANSITION_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </MiniField>
+                        <MiniField label="In Duration">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.05"
+                            value={inspectorClip.transitionIn?.duration ?? 0.6}
+                            onChange={(event) =>
+                              updateClipTransition(inspectorClip.id, "in", {
+                                duration: Math.max(0, Number(event.target.value)),
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </MiniField>
+                        <MiniField label="Transition Out">
+                          <select
+                            value={inspectorClip.transitionOut?.preset ?? "none"}
+                            onChange={(event) =>
+                              updateClipTransition(inspectorClip.id, "out", {
+                                preset: event.target.value as TransitionPreset,
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {TRANSITION_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </MiniField>
+                        <MiniField label="Out Duration">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.05"
+                            value={inspectorClip.transitionOut?.duration ?? 0.6}
+                            onChange={(event) =>
+                              updateClipTransition(inspectorClip.id, "out", {
+                                duration: Math.max(0, Number(event.target.value)),
+                              })
+                            }
+                            disabled={selectionLocked}
+                            className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                        </MiniField>
                       </div>
                     ) : (
-                      <p className="mt-3 text-xs text-slate-500">No clip is available for this layer.</p>
+                      <p className="text-xs text-slate-500">No clip is available for this layer.</p>
                     )}
 
                     {selectedKeyframe ? (
@@ -1262,7 +1346,7 @@ export function AppShell() {
                             updateKeyframeEasing(selectedKeyframe.id, event.target.value as Easing)
                           }
                           disabled={selectionLocked}
-                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          className="h-10 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {EASING_OPTIONS.map((option) => (
                             <option key={option} value={option}>
@@ -1276,87 +1360,102 @@ export function AppShell() {
                         Select a keyframe in the timeline to tune its easing curve.
                       </p>
                     )}
-                  </div>
+                  </InspectorSection>
                 ) : null}
 
                 {selectedLayer.type !== "audio" ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {(["x", "y", "scaleX", "scaleY", "skewX", "skewY", "rotation", "opacity"] as const).map(
-                      (property) => (
+                  <InspectorSection title="Keyframes">
+                    <div className="flex flex-wrap gap-2">
+                      {(["x", "y", "scaleX", "scaleY", "skewX", "skewY", "rotation", "opacity"] as const).map(
+                        (property) => (
+                          <button
+                            key={property}
+                            type="button"
+                            onClick={() => selectedId && addKeyframe(selectedId, property)}
+                            disabled={selectionLocked}
+                            className="rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            + {property}
+                          </button>
+                        ),
+                      )}
+                      {selectedKeyframeId ? (
                         <button
-                          key={property}
                           type="button"
-                          onClick={() => selectedId && addKeyframe(selectedId, property)}
+                          onClick={() => deleteKeyframe(selectedKeyframeId)}
                           disabled={selectionLocked}
-                          className="rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          + {property}
+                          Remove keyframe
                         </button>
-                      ),
-                    )}
-                    {selectedKeyframeId ? (
-                      <button
-                        type="button"
-                        onClick={() => deleteKeyframe(selectedKeyframeId)}
-                        disabled={selectionLocked}
-                        className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Remove keyframe
-                      </button>
-                    ) : null}
-                  </div>
+                      ) : null}
+                    </div>
+                  </InspectorSection>
                 ) : null}
 
-                {/* Export / Import actions */}
-                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-white/8 pt-3">
-                  <button
-                    type="button"
-                    onClick={handleExport}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
-                    title="Export project JSON"
-                  >
-                    <Download className="h-3 w-3" />
-                    JSON
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
-                    title="Import project JSON"
-                  >
-                    <FileUp className="h-3 w-3" />
-                    Import
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExportPng}
-                    className="inline-flex h-7 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
-                    title="Export preview PNG"
-                  >
-                    PNG
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExportWebm}
-                    className="inline-flex h-7 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
-                    title="Export preview WebM"
-                  >
-                    WebM
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => audioInputRef.current?.click()}
-                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
-                    title="Import audio layer"
-                  >
-                    <Volume2 className="h-3 w-3" />
-                    Audio
-                  </button>
+                <InspectorSection title="Export">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleExport}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+                      title="Export project JSON"
+                    >
+                      <Download className="h-3 w-3" />
+                      JSON
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+                      title="Import project JSON"
+                    >
+                      <FileUp className="h-3 w-3" />
+                      Import
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportPng}
+                      className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+                      title="Export preview PNG"
+                    >
+                      PNG
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportWebm}
+                      className="inline-flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+                      title="Export preview WebM"
+                    >
+                      WebM
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => audioInputRef.current?.click()}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-300 transition hover:bg-white/10"
+                      title="Import audio layer"
+                    >
+                      <Volume2 className="h-3 w-3" />
+                      Audio
+                    </button>
+                  </div>
+                </InspectorSection>
                 </div>
-              </div>
-            </div>
+              ) : (
+                <div className="flex min-h-[62vh] flex-col items-center justify-center gap-3 p-6 text-center">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">
+                    Inspector
+                  </p>
+                  <p className="text-base font-semibold text-white">Nothing selected</p>
+                  <p className="max-w-[18rem] text-sm leading-6 text-slate-400">
+                    Select a layer or clip to inspect transforms, animation timing, and export
+                    controls.
+                  </p>
+                </div>
+              )}
+            </section>
           ) : null}
-        </section>
+        </div>
 
         {/* ─── Timeline section ─────────────────────────────── */}
         <section className="overflow-hidden rounded-[28px] border border-white/8 bg-[#13161b] shadow-[0_28px_80px_rgba(0,0,0,0.34)]">
@@ -1578,20 +1677,17 @@ function MiniField({
   );
 }
 
-function ViewportGizmo() {
+function InspectorSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex h-20 w-20 items-center justify-center rounded-full border border-black/20 bg-[#121318]/92 shadow-[0_20px_40px_rgba(0,0,0,0.32)] backdrop-blur">
-      <div className="relative h-11 w-11">
-        <span className="absolute left-1/2 top-0 h-4 w-1 -translate-x-1/2 rounded-full bg-[#7ef2ad]" />
-        <span className="absolute bottom-0 left-1/2 h-4 w-1 -translate-x-1/2 rounded-full bg-[#4ade80]" />
-        <span className="absolute left-0 top-1/2 h-1 w-4 -translate-y-1/2 rounded-full bg-[#f43f5e]" />
-        <span className="absolute right-0 top-1/2 h-1 w-4 -translate-y-1/2 rounded-full bg-[#fb7185]" />
-        <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#6aa8ff]/60 bg-[#6aa8ff]" />
-        <span className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-[#86efac]" />
-        <span className="absolute bottom-0 left-1/2 h-2.5 w-2.5 -translate-x-1/2 rounded-full bg-[#4ade80]" />
-        <span className="absolute left-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#e11d48]" />
-        <span className="absolute right-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[#fb7185]" />
-      </div>
-    </div>
+    <section className="rounded-2xl border border-white/8 bg-black/18 p-3.5">
+      <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">{title}</p>
+      <div className="mt-3">{children}</div>
+    </section>
   );
 }

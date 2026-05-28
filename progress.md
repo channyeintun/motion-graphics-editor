@@ -17,6 +17,7 @@ Track the implementation of Layer Deletion features.
 ## Summary
 
 All three tasks completed and committed (`8968e97`). The delete layer feature is fully implemented:
+
 - `deleteLayer(layerId)` in the Zustand store handles smart re-selection of adjacent layers and clears stale clip/keyframe selections.
 - A `Trash2` icon button appears in the layer inspector header.
 - Pressing `Delete` or `Backspace` (when focus is outside an input/textarea) deletes the selected layer; if a keyframe is selected it still deletes the keyframe first.

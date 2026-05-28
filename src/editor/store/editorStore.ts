@@ -4,6 +4,7 @@ import { createDefaultProject } from "../model/defaultProject";
 import type {
   AnimatableProperty,
   Clip,
+  ClipTransition,
   Easing,
   Layer,
   TextContent,
@@ -61,6 +62,11 @@ type EditorState = {
   moveClip: (clipId: string, nextStart: number) => void;
   trimClip: (clipId: string, edge: "start" | "end", nextTime: number) => void;
   setClipEnabled: (clipId: string, enabled: boolean) => void;
+  updateClipTransition: (
+    clipId: string,
+    edge: "in" | "out",
+    patch: Partial<ClipTransition>,
+  ) => void;
   addKeyframe: (
     layerId: string,
     property: "x" | "y" | "rotation" | "scaleX" | "scaleY" | "skewX" | "skewY" | "opacity",
@@ -75,19 +81,19 @@ type EditorState = {
 
 function getInitialProject() {
   if (typeof window === "undefined") {
-    return createDefaultProject();
+    return normalizeProject(createDefaultProject());
   }
 
   const storedValue = window.localStorage.getItem(STORAGE_KEY);
 
   if (!storedValue) {
-    return createDefaultProject();
+    return normalizeProject(createDefaultProject());
   }
 
   try {
-    return JSON.parse(storedValue) as Project;
+    return normalizeProject(JSON.parse(storedValue) as Project);
   } catch {
-    return createDefaultProject();
+    return normalizeProject(createDefaultProject());
   }
 }
 
@@ -104,11 +110,53 @@ function createDefaultTransform(): Transform {
   return {
     x: 0,
     y: 0,
+    z: 0,
+    rotationX: 0,
+    rotationY: 0,
     rotation: 0,
     scaleX: 1,
     scaleY: 1,
+    scaleZ: 1,
     skewX: 0,
     skewY: 0,
+  };
+}
+
+function createDefaultClipTransition(): ClipTransition {
+  return {
+    preset: "none",
+    duration: 0.6,
+  };
+}
+
+function normalizeProject(project: Project): Project {
+  const layers = project.layers
+    .filter((layer) => !(project.id === "motion-editor-project" && layer.id === "orb"))
+    .map((layer) => ({
+      ...layer,
+      object: {
+        ...layer.object,
+        transform: {
+          ...createDefaultTransform(),
+          ...layer.object.transform,
+        },
+      },
+      clips: layer.clips.map((clip) => ({
+        ...clip,
+        transitionIn: {
+          ...createDefaultClipTransition(),
+          ...clip.transitionIn,
+        },
+        transitionOut: {
+          ...createDefaultClipTransition(),
+          ...clip.transitionOut,
+        },
+      })),
+    }));
+
+  return {
+    ...project,
+    layers,
   };
 }
 
@@ -268,9 +316,10 @@ export const useEditorStore = create<EditorState>((set) => ({
     set({ selectedKeyframeId: keyframeId });
   },
   replaceProject: (project) => {
+    const normalizedProject = normalizeProject(project);
     set({
-      project,
-      selectedLayerIds: project.layers[0] ? [project.layers[0].id] : [],
+      project: normalizedProject,
+      selectedLayerIds: normalizedProject.layers[0] ? [normalizedProject.layers[0].id] : [],
       selectedClipId: null,
       selectedKeyframeId: null,
       currentTime: 0,
@@ -305,6 +354,8 @@ export const useEditorStore = create<EditorState>((set) => ({
                   start: 0,
                   end: state.project.duration,
                   enabled: true,
+                  transitionIn: createDefaultClipTransition(),
+                  transitionOut: createDefaultClipTransition(),
                   keyframes: [],
                 },
               ],
@@ -363,6 +414,8 @@ export const useEditorStore = create<EditorState>((set) => ({
                   start: 0,
                   end: state.project.duration,
                   enabled: true,
+                  transitionIn: createDefaultClipTransition(),
+                  transitionOut: createDefaultClipTransition(),
                   keyframes: [],
                 },
               ],
@@ -475,6 +528,8 @@ export const useEditorStore = create<EditorState>((set) => ({
                   start: 0,
                   end: state.project.duration,
                   enabled: true,
+                  transitionIn: createDefaultClipTransition(),
+                  transitionOut: createDefaultClipTransition(),
                   keyframes: [],
                 },
               ],
@@ -532,6 +587,8 @@ export const useEditorStore = create<EditorState>((set) => ({
                   start: 0,
                   end: state.project.duration,
                   enabled: true,
+                  transitionIn: createDefaultClipTransition(),
+                  transitionOut: createDefaultClipTransition(),
                   keyframes: [],
                 },
               ],
@@ -594,6 +651,8 @@ export const useEditorStore = create<EditorState>((set) => ({
                   start: 0,
                   end: clipDuration,
                   enabled: true,
+                  transitionIn: createDefaultClipTransition(),
+                  transitionOut: createDefaultClipTransition(),
                   keyframes: [],
                 },
               ],
@@ -909,6 +968,30 @@ export const useEditorStore = create<EditorState>((set) => ({
           clips: layer.clips.map((clip) =>
             clip.id === clipId && !layer.locked ? { ...clip, enabled } : clip,
           ),
+        })),
+      },
+    }));
+  },
+  updateClipTransition: (clipId, edge, patch) => {
+    set((state) => ({
+      project: {
+        ...state.project,
+        layers: state.project.layers.map((layer) => ({
+          ...layer,
+          clips: layer.clips.map((clip) => {
+            if (clip.id !== clipId || layer.locked) {
+              return clip;
+            }
+
+            const key = edge === "in" ? "transitionIn" : "transitionOut";
+            return {
+              ...clip,
+              [key]: {
+                ...(clip[key] ?? createDefaultClipTransition()),
+                ...patch,
+              },
+            };
+          }),
         })),
       },
     }));
