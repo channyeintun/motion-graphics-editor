@@ -11,9 +11,22 @@ type PreviewViewportProps = {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, nextX: number, nextY: number) => void;
+  onScale: (id: string, scaleX: number, scaleY: number) => void;
+  onRotate: (id: string, rotation: number) => void;
   showGuides?: boolean;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 };
+
+type ScaleHandle = "tl" | "tr" | "bl" | "br" | "t" | "b" | "l" | "r";
+
+type PreviewCursor =
+  | "default"
+  | "grab"
+  | "grabbing"
+  | "ew-resize"
+  | "ns-resize"
+  | "nwse-resize"
+  | "nesw-resize";
 
 type DragState =
   | {
@@ -28,6 +41,24 @@ type DragState =
       startY: number;
       originX: number;
       originY: number;
+    }
+  | {
+      type: "scale";
+      id: string;
+      handle: ScaleHandle;
+      startPoint: { x: number; y: number };
+      startScaleX: number;
+      startScaleY: number;
+      objectWidth: number;
+      objectHeight: number;
+    }
+  | {
+      type: "rotate";
+      id: string;
+      centerX: number;
+      centerY: number;
+      startAngle: number;
+      startRotation: number;
     };
 
 export function PreviewViewport({
@@ -35,13 +66,18 @@ export function PreviewViewport({
   selectedId,
   onSelect,
   onMove,
+  onScale,
+  onRotate,
   showGuides = true,
   onCanvasReady,
 }: PreviewViewportProps) {
   const interactionMode = useSelector(viewportStore, (state) => state.context.interactionMode);
+  const transformMode = useSelector(viewportStore, (state) => state.context.transformMode);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [hoverCursor, setHoverCursor] = useState<PreviewCursor>("default");
   const [viewportOffset, setViewportOffset] = useState({ x: 0, y: 0 });
   const selectedObject = objects.find((object) => object.id === selectedId) ?? null;
+  const previewCursor = dragState ? getDragCursor(dragState) : hoverCursor;
 
   const guideLines = useMemo(
     () => [
@@ -64,8 +100,66 @@ export function PreviewViewport({
       return;
     }
 
-    const nextX = clamp(event.point.x + dragState.offsetX - viewportOffset.x, -4.25, 4.25);
-    const nextY = clamp(event.point.y + dragState.offsetY - viewportOffset.y, -4.25, 4.25);
+    if (dragState.type === "scale") {
+      const dx = event.point.x - dragState.startPoint.x;
+      const dy = event.point.y - dragState.startPoint.y;
+      const halfW = dragState.objectWidth / 2;
+      const halfH = dragState.objectHeight / 2;
+
+      let nextScaleX = dragState.startScaleX;
+      let nextScaleY = dragState.startScaleY;
+
+      const handle = dragState.handle;
+      const isCorner = handle === "tl" || handle === "tr" || handle === "bl" || handle === "br";
+
+      if (handle === "r") {
+        nextScaleX = Math.max(0.05, dragState.startScaleX + dx / halfW);
+      } else if (handle === "l") {
+        nextScaleX = Math.max(0.05, dragState.startScaleX - dx / halfW);
+      } else if (handle === "t") {
+        nextScaleY = Math.max(0.05, dragState.startScaleY + dy / halfH);
+      } else if (handle === "b") {
+        nextScaleY = Math.max(0.05, dragState.startScaleY - dy / halfH);
+      } else if (isCorner) {
+        // Lock aspect ratio for corner handles — use the larger delta
+        const scaleXDelta = dx / halfW;
+        const scaleYDelta = dy / halfH;
+
+        if (handle === "tr") {
+          const avg = (scaleXDelta - scaleYDelta) / 2;
+          nextScaleX = Math.max(0.05, dragState.startScaleX + avg);
+          nextScaleY = Math.max(0.05, dragState.startScaleY + avg);
+        } else if (handle === "tl") {
+          const avg = (-scaleXDelta - scaleYDelta) / 2;
+          nextScaleX = Math.max(0.05, dragState.startScaleX + avg);
+          nextScaleY = Math.max(0.05, dragState.startScaleY + avg);
+        } else if (handle === "br") {
+          const avg = (scaleXDelta + scaleYDelta) / 2;
+          nextScaleX = Math.max(0.05, dragState.startScaleX + avg);
+          nextScaleY = Math.max(0.05, dragState.startScaleY + avg);
+        } else if (handle === "bl") {
+          const avg = (-scaleXDelta + scaleYDelta) / 2;
+          nextScaleX = Math.max(0.05, dragState.startScaleX + avg);
+          nextScaleY = Math.max(0.05, dragState.startScaleY + avg);
+        }
+      }
+
+      onScale(dragState.id, nextScaleX, nextScaleY);
+      return;
+    }
+
+    if (dragState.type === "rotate") {
+      const newAngle = Math.atan2(
+        event.point.y - dragState.centerY,
+        event.point.x - dragState.centerX,
+      );
+      const nextRotation = dragState.startRotation + (newAngle - dragState.startAngle);
+      onRotate(dragState.id, nextRotation);
+      return;
+    }
+
+    const nextX = clamp(event.point.x + dragState.offsetX - viewportOffset.x, -8.5, 8.5);
+    const nextY = clamp(event.point.y + dragState.offsetY - viewportOffset.y, -4.8, 4.8);
     onMove(dragState.id, snapToCenter(nextX), snapToCenter(nextY));
   };
 
@@ -73,6 +167,8 @@ export function PreviewViewport({
     if (dragState) {
       setDragState(null);
     }
+
+    setHoverCursor("default");
   };
 
   return (
@@ -84,6 +180,7 @@ export function PreviewViewport({
           camera={{ position: [0, 0, 20], zoom: 72 }}
           dpr={[1, 2]}
           className="rounded-[26px]"
+          style={{ cursor: previewCursor }}
           onCreated={(state) => {
             onCanvasReady?.(state.gl.domElement);
           }}
@@ -117,7 +214,7 @@ export function PreviewViewport({
               }}
               onPointerMove={handlePointerMove}
             >
-              <planeGeometry args={[9.2, 9.2]} />
+              <planeGeometry args={[20, 12]} />
               <meshBasicMaterial transparent opacity={0} />
             </mesh>
           ) : null}
@@ -145,15 +242,49 @@ export function PreviewViewport({
                     return;
                   }
 
-                  setDragState({
-                    type: "move",
-                    id: object.id,
-                    offsetX: object.x - (event.point.x - viewportOffset.x),
-                    offsetY: object.y - (event.point.y - viewportOffset.y),
-                  });
+                  if (transformMode === "translate") {
+                    setDragState({
+                      type: "move",
+                      id: object.id,
+                      offsetX: object.x - (event.point.x - viewportOffset.x),
+                      offsetY: object.y - (event.point.y - viewportOffset.y),
+                    });
+                  }
                 }}
               />
             ))}
+
+            {selectedObject && !selectedObject.locked && interactionMode === "select" ? (
+              <TransformHandles
+                object={selectedObject}
+                transformMode={transformMode}
+                viewportOffset={viewportOffset}
+                onStartScaleDrag={(handle, startPoint, startScaleX, startScaleY, objectWidth, objectHeight) => {
+                  setDragState({
+                    type: "scale",
+                    id: selectedObject.id,
+                    handle,
+                    startPoint,
+                    startScaleX,
+                    startScaleY,
+                    objectWidth,
+                    objectHeight,
+                  });
+                }}
+                onStartRotateDrag={(centerX, centerY, startAngle, startRotation) => {
+                  setDragState({
+                    type: "rotate",
+                    id: selectedObject.id,
+                    centerX,
+                    centerY,
+                    startAngle,
+                    startRotation,
+                  });
+                }}
+                onHandleHover={setHoverCursor}
+                onHandleExit={() => setHoverCursor("default")}
+              />
+            ) : null}
           </group>
         </Canvas>
 
@@ -169,6 +300,182 @@ export function PreviewViewport({
       </div>
     </div>
   );
+}
+
+type TransformHandlesProps = {
+  object: PreviewObject;
+  transformMode: "translate" | "rotate" | "scale";
+  viewportOffset: { x: number; y: number };
+  onStartScaleDrag: (
+    handle: ScaleHandle,
+    startPoint: { x: number; y: number },
+    startScaleX: number,
+    startScaleY: number,
+    objectWidth: number,
+    objectHeight: number,
+  ) => void;
+  onStartRotateDrag: (
+    centerX: number,
+    centerY: number,
+    startAngle: number,
+    startRotation: number,
+  ) => void;
+  onHandleHover: (cursor: PreviewCursor) => void;
+  onHandleExit: () => void;
+};
+
+function TransformHandles({
+  object,
+  transformMode,
+  viewportOffset,
+  onStartScaleDrag,
+  onStartRotateDrag,
+  onHandleHover,
+  onHandleExit,
+}: TransformHandlesProps) {
+  const bounds = getObjectBounds(object);
+  const effectiveWidth = bounds.width * object.scaleX;
+  const effectiveHeight = bounds.height * object.scaleY;
+  const hw = effectiveWidth / 2;
+  const hh = effectiveHeight / 2;
+  const px = object.x + viewportOffset.x;
+  const py = object.y + viewportOffset.y;
+
+  if (transformMode === "scale") {
+    const scaleHandles: { id: ScaleHandle; dx: number; dy: number }[] = [
+      { id: "tl", dx: -hw, dy: hh },
+      { id: "tr", dx: hw, dy: hh },
+      { id: "bl", dx: -hw, dy: -hh },
+      { id: "br", dx: hw, dy: -hh },
+      { id: "t", dx: 0, dy: hh },
+      { id: "b", dx: 0, dy: -hh },
+      { id: "l", dx: -hw, dy: 0 },
+      { id: "r", dx: hw, dy: 0 },
+    ];
+
+    const handleScalePointerDown = (handle: ScaleHandle, event: ThreeEvent<PointerEvent>) => {
+      event.stopPropagation();
+      onStartScaleDrag(
+        handle,
+        { x: event.point.x, y: event.point.y },
+        object.scaleX,
+        object.scaleY,
+        bounds.width,
+        bounds.height,
+      );
+    };
+
+    const handleScalePointerOver = (handle: ScaleHandle, event: ThreeEvent<PointerEvent>) => {
+      event.stopPropagation();
+      onHandleHover(getScaleHandleCursor(handle));
+    };
+
+    const handleScalePointerOut = (event: ThreeEvent<PointerEvent>) => {
+      event.stopPropagation();
+      onHandleExit();
+    };
+
+    return (
+      <group position={[px, py, 0.9]}>
+        {scaleHandles.map(({ id, dx, dy }) => (
+          <mesh
+            key={id}
+            position={[dx, dy, 0]}
+            onPointerDown={(event) => handleScalePointerDown(id, event)}
+            onPointerOver={(event) => handleScalePointerOver(id, event)}
+            onPointerOut={handleScalePointerOut}
+          >
+            <planeGeometry args={[0.12, 0.12]} />
+            <meshBasicMaterial color="#7c3aed" />
+          </mesh>
+        ))}
+        {/* Inner white dot for each handle */}
+        {scaleHandles.map(({ id, dx, dy }) => (
+          <mesh
+            key={`dot-${id}`}
+            position={[dx, dy, 0.01]}
+            onPointerDown={(event) => handleScalePointerDown(id, event)}
+            onPointerOver={(event) => handleScalePointerOver(id, event)}
+            onPointerOut={handleScalePointerOut}
+          >
+            <planeGeometry args={[0.06, 0.06]} />
+            <meshBasicMaterial color="white" />
+          </mesh>
+        ))}
+      </group>
+    );
+  }
+
+  if (transformMode === "rotate") {
+    const offset = 0.18;
+    const rotateHandles: { id: string; dx: number; dy: number }[] = [
+      { id: "tl", dx: -(hw + offset), dy: hh + offset },
+      { id: "tr", dx: hw + offset, dy: hh + offset },
+      { id: "bl", dx: -(hw + offset), dy: -(hh + offset) },
+      { id: "br", dx: hw + offset, dy: -(hh + offset) },
+    ];
+
+    const rOuter = Math.max(hw, hh) * 1.05 + offset;
+
+    const centerX = px;
+    const centerY = py;
+
+    const handleRotatePointerDown = (event: ThreeEvent<PointerEvent>) => {
+      event.stopPropagation();
+      const startAngle = Math.atan2(event.point.y - centerY, event.point.x - centerX);
+      onStartRotateDrag(centerX, centerY, startAngle, object.rotation);
+    };
+
+    const handleRotatePointerOver = (event: ThreeEvent<PointerEvent>) => {
+      event.stopPropagation();
+      onHandleHover("grab");
+    };
+
+    const handleRotatePointerOut = (event: ThreeEvent<PointerEvent>) => {
+      event.stopPropagation();
+      onHandleExit();
+    };
+
+    return (
+      <group position={[px, py, 0.9]}>
+        {/* Rotation orbit ring */}
+        <mesh
+          position={[0, 0, -0.01]}
+          onPointerDown={handleRotatePointerDown}
+          onPointerOver={handleRotatePointerOver}
+          onPointerOut={handleRotatePointerOut}
+        >
+          <ringGeometry args={[rOuter - 0.02, rOuter, 64]} />
+          <meshBasicMaterial color="#7c3aed" transparent opacity={0.35} side={THREE.DoubleSide} />
+        </mesh>
+
+        {/* Corner rotate handles */}
+        {rotateHandles.map(({ id, dx, dy }) => (
+          <group key={id} position={[dx, dy, 0]}>
+            <mesh
+              onPointerDown={handleRotatePointerDown}
+              onPointerOver={handleRotatePointerOver}
+              onPointerOut={handleRotatePointerOut}
+            >
+              <circleGeometry args={[0.18, 32]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+            </mesh>
+            <mesh
+              position={[0, 0, 0.01]}
+              onPointerDown={handleRotatePointerDown}
+              onPointerOver={handleRotatePointerOver}
+              onPointerOut={handleRotatePointerOut}
+            >
+              <circleGeometry args={[0.09, 32]} />
+              <meshBasicMaterial color="#7c3aed" />
+            </mesh>
+          </group>
+        ))}
+      </group>
+    );
+  }
+
+  return null;
 }
 
 type PreviewNodeProps = {
@@ -476,6 +783,34 @@ function getObjectBounds(object: PreviewObject) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getScaleHandleCursor(handle: ScaleHandle): PreviewCursor {
+  if (handle === "t" || handle === "b") {
+    return "ns-resize";
+  }
+
+  if (handle === "l" || handle === "r") {
+    return "ew-resize";
+  }
+
+  if (handle === "tl" || handle === "br") {
+    return "nwse-resize";
+  }
+
+  return "nesw-resize";
+}
+
+function getDragCursor(dragState: DragState): PreviewCursor {
+  if (dragState.type === "scale") {
+    return getScaleHandleCursor(dragState.handle);
+  }
+
+  if (dragState.type === "rotate") {
+    return "grabbing";
+  }
+
+  return "default";
 }
 
 function snapToCenter(value: number) {

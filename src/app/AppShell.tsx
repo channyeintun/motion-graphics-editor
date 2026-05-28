@@ -3,9 +3,13 @@ import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Box,
   Boxes,
   Camera,
+  Circle,
   ChevronDown,
+  Cone,
+  Cylinder,
   Grid2x2,
   Hand,
   Download,
@@ -15,15 +19,19 @@ import {
   Image as ImageIcon,
   Lock,
   LockOpen,
-  Monitor,
-  MousePointer2,
+  Maximize2,
+  Move,
+  Pentagon,
   Pause,
   Play,
   Redo2,
   Repeat,
-  Save,
+  RotateCw,
   Square,
+  Star,
+  Torus,
   Trash2,
+  Triangle,
   Type,
   Undo2,
   Volume2,
@@ -36,6 +44,42 @@ import { STORAGE_KEY, useEditorStore } from "../editor/store/editorStore";
 import { useSelector } from "@xstate/store-react";
 import { viewportStore } from "../editor/store/viewportStore";
 import { TimelinePanel } from "../editor/timeline/TimelinePanel";
+
+type ToolbarIcon = typeof Move;
+
+const TRANSFORM_TOOL_OPTIONS = [
+  { mode: "translate", icon: Move, label: "Move" },
+  { mode: "rotate", icon: RotateCw, label: "Rotate" },
+  { mode: "scale", icon: Maximize2, label: "Scale" },
+] satisfies ReadonlyArray<{
+  mode: "translate" | "rotate" | "scale";
+  icon: ToolbarIcon;
+  label: string;
+}>;
+
+const MODEL_TOOL_OPTIONS = [
+  { shape: "cube", icon: Box, label: "Cube" },
+  { shape: "sphere", icon: Circle, label: "Sphere" },
+  { shape: "cylinder", icon: Cylinder, label: "Cylinder" },
+  { shape: "cone", icon: Cone, label: "Cone" },
+  { shape: "torus", icon: Torus, label: "Torus" },
+] satisfies ReadonlyArray<{
+  shape: "cube" | "sphere" | "cylinder" | "cone" | "torus";
+  icon: ToolbarIcon;
+  label: string;
+}>;
+
+const SHAPE_TOOL_OPTIONS = [
+  { shape: "rectangle", icon: Square, label: "Rectangle" },
+  { shape: "circle", icon: Circle, label: "Circle" },
+  { shape: "triangle", icon: Triangle, label: "Triangle" },
+  { shape: "star", icon: Star, label: "Star" },
+  { shape: "polygon", icon: Pentagon, label: "Polygon" },
+] satisfies ReadonlyArray<{
+  shape: "rectangle" | "circle" | "triangle" | "star" | "polygon";
+  icon: ToolbarIcon;
+  label: string;
+}>;
 
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -50,7 +94,7 @@ export function AppShell() {
   const lastProjectRef = useRef<string>("");
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const [showGuides, setShowGuides] = useState(true);
-  const [showInspectorOverlay, setShowInspectorOverlay] = useState(true);
+  const [showInspectorOverlay] = useState(true);
   const [timelineZoom, setTimelineZoom] = useState(140);
 
   const interactionMode = useSelector(viewportStore, (state) => state.context.interactionMode);
@@ -83,6 +127,21 @@ export function AppShell() {
   const updateLayerOpacity = useEditorStore((state) => state.updateLayerOpacity);
   const moveLayerObject = useEditorStore((state) => state.moveLayerObject);
   const replaceProject = useEditorStore((state) => state.replaceProject);
+
+  const handleScale = useCallback(
+    (id: string, scaleX: number, scaleY: number) => {
+      updateTransformProperty(id, "scaleX", scaleX);
+      updateTransformProperty(id, "scaleY", scaleY);
+    },
+    [updateTransformProperty],
+  );
+
+  const handleRotate = useCallback(
+    (id: string, rotation: number) => {
+      updateTransformProperty(id, "rotation", rotation);
+    },
+    [updateTransformProperty],
+  );
   const moveClip = useEditorStore((state) => state.moveClip);
   const trimClip = useEditorStore((state) => state.trimClip);
   const addKeyframe = useEditorStore((state) => state.addKeyframe);
@@ -429,6 +488,10 @@ export function AppShell() {
 
   const canUndo = historyState.canUndo;
   const canRedo = historyState.canRedo;
+  const activeTransformTool =
+    TRANSFORM_TOOL_OPTIONS.find((option) => option.mode === transformMode) ??
+    TRANSFORM_TOOL_OPTIONS[0];
+  const ActiveTransformIcon = activeTransformTool.icon;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -482,7 +545,7 @@ export function AppShell() {
   ]);
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,_#ddd9d2_0%,_#b8b2ab_42%,_#0d0f14_100%)] text-slate-100">
+    <main className="min-h-screen bg-[linear-gradient(155deg,_#27282c_0%,_#1a1b1f_45%,_#0d0f14_100%)] text-slate-100">
       <input
         ref={fileInputRef}
         type="file"
@@ -505,13 +568,14 @@ export function AppShell() {
         onChange={handleAudioImport}
       />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-3 p-3 md:p-4">
-        <section className="relative min-h-[66vh] overflow-hidden rounded-[36px] border border-black/12 bg-[linear-gradient(180deg,_rgba(255,255,255,0.26),_rgba(255,255,255,0.02)_20%,_rgba(0,0,0,0.2)_100%)] shadow-[0_30px_110px_rgba(0,0,0,0.22)]">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,_rgba(255,255,255,0.28),_transparent)]" />
-
-          <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
-            <div className="flex items-center rounded-full bg-black/75 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.32)] backdrop-blur-xl border border-white/5">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-2 p-2 md:p-3">
+        {/* ─── Preview section ─────────────────────────────── */}
+        <section className="relative min-h-[62vh] overflow-hidden rounded-[30px] border border-white/6 bg-[#0d0f14] shadow-[0_32px_100px_rgba(0,0,0,0.55)]">
+          {/* Top-left compact toolbar */}
+          <div className="absolute left-4 top-4 z-20">
+            <div className="flex items-center gap-0.5 rounded-[14px] border border-white/8 bg-black/70 p-[3px] shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-xl">
               <button
+                id="toolbar-pan"
                 type="button"
                 onClick={() =>
                   viewportStore.send({
@@ -519,12 +583,17 @@ export function AppShell() {
                     mode: interactionMode === "pan" ? "select" : "pan",
                   })
                 }
-                className={`flex h-8 px-3 items-center justify-center rounded-full transition-all ${interactionMode === "pan" ? "bg-white/16 text-white font-medium" : "text-slate-400 hover:text-slate-200"}`}
-                title="Pan tool (Hand)"
+                className={`flex h-8 w-8 items-center justify-center rounded-[11px] transition-all ${
+                  interactionMode === "pan"
+                    ? "bg-white/15 text-white"
+                    : "text-slate-400 hover:bg-white/8 hover:text-slate-200"
+                }`}
+                title="Pan tool"
               >
                 <Hand className="h-4 w-4" />
               </button>
               <button
+                id="toolbar-camera"
                 type="button"
                 onClick={() =>
                   viewportStore.send({
@@ -532,56 +601,33 @@ export function AppShell() {
                     mode: interactionMode === "orbit" ? "select" : "orbit",
                   })
                 }
-                className={`flex h-8 px-3 items-center justify-center rounded-full transition-all ${interactionMode === "orbit" ? "bg-white/16 text-white font-medium" : "text-slate-400 hover:text-slate-200"}`}
-                title="Camera orbit tool (Camera)"
+                className={`flex h-8 w-8 items-center justify-center rounded-[11px] transition-all ${
+                  interactionMode === "orbit"
+                    ? "bg-white/15 text-white"
+                    : "text-slate-400 hover:bg-white/8 hover:text-slate-200"
+                }`}
+                title="Camera orbit tool"
               >
                 <Camera className="h-4 w-4" />
               </button>
-            </div>
-
-            <div className="flex items-center gap-1 rounded-2xl bg-black/75 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.32)] backdrop-blur-xl border border-white/5">
               <button
+                id="toolbar-grid"
                 type="button"
-                onClick={() => setShowGuides((value) => !value)}
-                className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${showGuides ? "text-white bg-white/10" : "text-slate-400 hover:text-slate-200"}`}
+                onClick={() => setShowGuides((v) => !v)}
+                className={`flex h-8 w-8 items-center justify-center rounded-[11px] transition-all ${
+                  showGuides
+                    ? "bg-white/15 text-white"
+                    : "text-slate-400 hover:bg-white/8 hover:text-slate-200"
+                }`}
                 title="Toggle grid guides"
               >
                 <Grid2x2 className="h-4 w-4" />
               </button>
-              <button
-                type="button"
-                onClick={() => setShowInspectorOverlay((value) => !value)}
-                className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${showInspectorOverlay ? "text-white bg-white/10" : "text-slate-400 hover:text-slate-200"}`}
-                title="Toggle inspector overlay"
-              >
-                <Monitor className="h-4 w-4" />
-              </button>
             </div>
           </div>
 
-          <div className="absolute right-4 top-4 z-20 flex items-start gap-3">
-            <div className="flex items-center gap-2 rounded-[20px] border border-black/10 bg-black/55 px-3 py-2 text-[11px] font-medium text-slate-200 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl">
-              <span className="uppercase tracking-[0.28em] text-slate-400">Canvas</span>
-              <span>
-                {project.width} x {project.height}
-              </span>
-              <span className="text-slate-500">•</span>
-              <span>{project.fps} FPS</span>
-              <span className="text-slate-500">•</span>
-              <span>{currentTime.toFixed(2)}s</span>
-              <div className="ml-2 flex items-center gap-1 border-l border-white/10 pl-2">
-                <ChromeIconButton
-                  icon={Download}
-                  title="Export project JSON"
-                  onClick={handleExport}
-                />
-                <ChromeIconButton
-                  icon={FileUp}
-                  title="Import project JSON"
-                  onClick={() => fileInputRef.current?.click()}
-                />
-              </div>
-            </div>
+          {/* Top-right: gizmo only */}
+          <div className="absolute right-4 top-4 z-20">
             <ViewportGizmo />
           </div>
 
@@ -590,15 +636,18 @@ export function AppShell() {
             selectedId={selectedId}
             onSelect={selectLayer}
             onMove={moveLayerObject}
+            onScale={handleScale}
+            onRotate={handleRotate}
             showGuides={showGuides}
             onCanvasReady={(canvas) => {
               previewCanvasRef.current = canvas;
             }}
           />
 
+          {/* Bottom floating toolbar */}
           <div className="absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
             <div className="relative">
-              <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/75 p-1.5 text-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+              <div className="flex items-center gap-1 rounded-full border border-white/10 bg-black/78 p-1.5 text-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
                 {/* Select Tool with dropdown */}
                 <div className="relative flex items-center">
                   <button
@@ -610,46 +659,32 @@ export function AppShell() {
                         dropdown: activeDropdown === "select" ? null : "select",
                       });
                     }}
-                    className={`flex h-9 items-center gap-1 rounded-full pl-3 pr-2.5 transition ${interactionMode === "select" ? "bg-[#6f7bf6] text-white shadow-[0_4px_12px_rgba(111,123,246,0.35)] font-semibold" : "text-slate-300 hover:bg-white/5"}`}
-                    title="Select and Transform Tool"
+                    className={`flex h-9 items-center gap-1 rounded-full pl-3 pr-2 transition ${
+                      interactionMode === "select"
+                        ? "bg-[#6f7bf6] text-white shadow-[0_4px_12px_rgba(111,123,246,0.35)]"
+                        : "text-slate-300 hover:bg-white/5"
+                    }`}
+                    title={`${activeTransformTool.label} transform tool`}
+                    aria-label={`${activeTransformTool.label} transform tool`}
                   >
-                    <MousePointer2 className="h-4 w-4" />
-                    <span className="text-[10px] uppercase tracking-wider">{transformMode}</span>
+                    <ActiveTransformIcon className="h-4 w-4" />
                     <ChevronDown className="h-3 w-3 opacity-60" />
                   </button>
 
                   {activeDropdown === "select" ? (
-                    <div className="absolute bottom-12 left-0 z-50 flex w-36 flex-col gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          viewportStore.send({ type: "setTransformMode", mode: "translate" });
-                          viewportStore.send({ type: "setActiveDropdown", dropdown: null });
-                        }}
-                        className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "translate" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-                      >
-                        Translate (Move)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          viewportStore.send({ type: "setTransformMode", mode: "rotate" });
-                          viewportStore.send({ type: "setActiveDropdown", dropdown: null });
-                        }}
-                        className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "rotate" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-                      >
-                        Rotate
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          viewportStore.send({ type: "setTransformMode", mode: "scale" });
-                          viewportStore.send({ type: "setActiveDropdown", dropdown: null });
-                        }}
-                        className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "scale" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-                      >
-                        Scale
-                      </button>
+                    <div className="absolute bottom-12 left-0 z-50 flex items-center gap-1 rounded-full border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                      {TRANSFORM_TOOL_OPTIONS.map(({ mode, icon, label }) => (
+                        <ToolbarOptionButton
+                          key={mode}
+                          icon={icon}
+                          title={label}
+                          active={transformMode === mode}
+                          onClick={() => {
+                            viewportStore.send({ type: "setTransformMode", mode });
+                            viewportStore.send({ type: "setActiveDropdown", dropdown: null });
+                          }}
+                        />
+                      ))}
                     </div>
                   ) : null}
                 </div>
@@ -673,19 +708,17 @@ export function AppShell() {
                   </button>
 
                   {activeDropdown === "cube" ? (
-                    <div className="absolute bottom-12 left-1/2 z-50 flex w-36 -translate-x-1/2 flex-col gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-                      {(["cube", "sphere", "cylinder", "cone", "torus"] as const).map((shape) => (
-                        <button
+                    <div className="absolute bottom-12 left-1/2 z-50 grid w-32 -translate-x-1/2 grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                      {MODEL_TOOL_OPTIONS.map(({ shape, icon, label }) => (
+                        <ToolbarOptionButton
                           key={shape}
-                          type="button"
+                          icon={icon}
+                          title={label}
                           onClick={() => {
                             add3DModelLayer(shape);
                             viewportStore.send({ type: "setActiveDropdown", dropdown: null });
                           }}
-                          className="flex h-8 items-center rounded-xl px-2.5 text-left text-xs text-slate-400 transition hover:bg-white/5 hover:text-white capitalize"
-                        >
-                          {shape} 3D
-                        </button>
+                        />
                       ))}
                     </div>
                   ) : null}
@@ -711,16 +744,6 @@ export function AppShell() {
                   <ImageIcon className="h-4.5 w-4.5" />
                 </button>
 
-                {/* Audio upload */}
-                <button
-                  type="button"
-                  onClick={() => audioInputRef.current?.click()}
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/5 hover:text-white"
-                  title="Import audio layer"
-                >
-                  <Volume2 className="h-4.5 w-4.5" />
-                </button>
-
                 <div className="h-5 w-px bg-white/10" />
 
                 {/* 2D Shapes Dropdown */}
@@ -741,22 +764,18 @@ export function AppShell() {
                   </button>
 
                   {activeDropdown === "shape" ? (
-                    <div className="absolute bottom-12 right-0 z-50 flex w-36 flex-col gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-                      {(["rectangle", "circle", "triangle", "star", "polygon"] as const).map(
-                        (shape) => (
-                          <button
-                            key={shape}
-                            type="button"
-                            onClick={() => {
-                              addShapeLayer(shape);
-                              viewportStore.send({ type: "setActiveDropdown", dropdown: null });
-                            }}
-                            className="flex h-8 items-center rounded-xl px-2.5 text-left text-xs text-slate-400 transition hover:bg-white/5 hover:text-white capitalize"
-                          >
-                            {shape}
-                          </button>
-                        ),
-                      )}
+                    <div className="absolute bottom-12 right-0 z-50 grid w-32 grid-cols-3 gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                      {SHAPE_TOOL_OPTIONS.map(({ shape, icon, label }) => (
+                        <ToolbarOptionButton
+                          key={shape}
+                          icon={icon}
+                          title={label}
+                          onClick={() => {
+                            addShapeLayer(shape);
+                            viewportStore.send({ type: "setActiveDropdown", dropdown: null });
+                          }}
+                        />
+                      ))}
                     </div>
                   ) : null}
                 </div>
@@ -783,6 +802,18 @@ export function AppShell() {
                     </p>
                   </div>
                   <div className="flex items-center gap-1">
+                    <ChromeIconButton
+                      icon={Undo2}
+                      title="Undo (⌘Z)"
+                      onClick={undoProject}
+                      disabled={!canUndo}
+                    />
+                    <ChromeIconButton
+                      icon={Redo2}
+                      title="Redo (⌘⇧Z)"
+                      onClick={redoProject}
+                      disabled={!canRedo}
+                    />
                     <ChromeIconButton
                       icon={selectedLayer.visible ? Eye : EyeOff}
                       title={selectedLayer.visible ? "Hide layer" : "Show layer"}
@@ -985,80 +1016,115 @@ export function AppShell() {
                     ) : null}
                   </div>
                 ) : null}
+
+                {/* Export / Import actions */}
+                <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-white/8 pt-3">
+                  <button
+                    type="button"
+                    onClick={handleExport}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
+                    title="Export project JSON"
+                  >
+                    <Download className="h-3 w-3" />
+                    JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
+                    title="Import project JSON"
+                  >
+                    <FileUp className="h-3 w-3" />
+                    Import
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportPng}
+                    className="inline-flex h-7 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
+                    title="Export preview PNG"
+                  >
+                    PNG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportWebm}
+                    className="inline-flex h-7 items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
+                    title="Export preview WebM"
+                  >
+                    WebM
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => audioInputRef.current?.click()}
+                    className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 text-[11px] text-slate-300 transition hover:bg-white/10"
+                    title="Import audio layer"
+                  >
+                    <Volume2 className="h-3 w-3" />
+                    Audio
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}
         </section>
 
-        <section className="overflow-hidden rounded-[34px] border border-white/8 bg-[#13161b] shadow-[0_28px_80px_rgba(0,0,0,0.34)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+        {/* ─── Timeline section ─────────────────────────────── */}
+        <section className="overflow-hidden rounded-[28px] border border-white/8 bg-[#13161b] shadow-[0_28px_80px_rgba(0,0,0,0.34)]">
+          <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+            {/* Left: Play/Pause square button */}
+            <button
+              id="timeline-play-pause"
+              type="button"
+              onClick={() => setPlaying(!isPlaying)}
+              title={isPlaying ? "Pause timeline" : "Play timeline"}
+              className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-[14px] border text-white transition ${
+                isPlaying
+                  ? "border-[#8e99ff]/50 bg-[#6f7bf6]/25 text-[#b4bcff]"
+                  : "border-white/10 bg-white/6 hover:bg-white/10"
+              }`}
+            >
+              {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+            </button>
+
+            {/* Right controls */}
             <div className="flex flex-wrap items-center gap-2">
-              <TransportButton
-                icon={isPlaying ? Pause : Play}
-                label={isPlaying ? "Pause" : "Play"}
-                title={isPlaying ? "Pause timeline" : "Play timeline"}
-                onClick={() => setPlaying(!isPlaying)}
-                active={isPlaying}
-              />
-              <TransportButton
-                icon={Repeat}
-                label={loopPlayback ? "Loop On" : "Loop Off"}
-                title="Toggle timeline looping"
+              <button
+                id="timeline-audio-import"
+                type="button"
+                title="Import audio layer"
+                onClick={() => audioInputRef.current?.click()}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-slate-200"
+              >
+                <Volume2 className="h-4 w-4" />
+              </button>
+              <button
+                id="timeline-loop"
+                type="button"
+                title={loopPlayback ? "Loop on" : "Loop off"}
                 onClick={() => setLoopPlayback(!loopPlayback)}
-                active={loopPlayback}
-              />
-              <TransportButton
-                icon={Undo2}
-                label="Undo"
-                title="Undo"
-                onClick={undoProject}
-                disabled={!canUndo}
-              />
-              <TransportButton
-                icon={Redo2}
-                label="Redo"
-                title="Redo"
-                onClick={redoProject}
-                disabled={!canRedo}
-              />
-            </div>
-
-            <label className="inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
-              <span className="uppercase tracking-[0.26em] text-slate-500">Zoom</span>
-              <input
-                type="range"
-                min="80"
-                max="240"
-                step="10"
-                value={timelineZoom}
-                onChange={(event) => setTimelineZoom(Number(event.target.value))}
-                className="w-32 accent-[#6f7bf6]"
-              />
-            </label>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <TransportButton
-                icon={Download}
-                label="JSON"
-                title="Export project JSON"
-                onClick={handleExport}
-              />
-              <TransportButton
-                icon={Save}
-                label="PNG"
-                title="Export preview PNG"
-                onClick={handleExportPng}
-              />
-              <TransportButton
-                icon={Monitor}
-                label="WebM"
-                title="Export preview WebM"
-                onClick={handleExportWebm}
-              />
-              <TimelineMetaPill label="Start" value={`${(selectedClip?.start ?? 0).toFixed(2)}s`} />
+                className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                  loopPlayback
+                    ? "border-[#8e99ff]/40 bg-[#6f7bf6]/20 text-[#b4bcff]"
+                    : "border-white/10 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200"
+                }`}
+              >
+                <Repeat className="h-4 w-4" />
+              </button>
+              <label className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-3 py-2">
+                <input
+                  type="range"
+                  min="80"
+                  max="240"
+                  step="10"
+                  value={timelineZoom}
+                  onChange={(event) => setTimelineZoom(Number(event.target.value))}
+                  className="w-28 accent-white"
+                />
+              </label>
+              <TimelineMetaPill label="Start" value={`${(selectedClip?.start ?? 0).toFixed(2)}`} />
               <TimelineMetaPill
                 label="End"
-                value={`${(selectedClip?.end ?? project.duration).toFixed(2)}s`}
+                value={`${(selectedClip?.end ?? project.duration).toFixed(2)}`}
               />
             </div>
           </div>
@@ -1149,7 +1215,7 @@ function ChromeIconButton({
   active = false,
   disabled = false,
 }: {
-  icon: typeof MousePointer2;
+  icon: ToolbarIcon;
   title: string;
   onClick?: () => void;
   active?: boolean;
@@ -1168,31 +1234,30 @@ function ChromeIconButton({
   );
 }
 
-function TransportButton({
+function ToolbarOptionButton({
   icon: Icon,
-  label,
   title,
   onClick,
   active = false,
-  disabled = false,
 }: {
-  icon: typeof MousePointer2;
-  label: string;
+  icon: ToolbarIcon;
   title: string;
   onClick: () => void;
   active?: boolean;
-  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
+      aria-label={title}
       onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex h-10 items-center gap-2 rounded-full border px-3 text-xs font-medium transition ${active ? "border-[#8e99ff]/50 bg-[#6f7bf6]/22 text-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/9"} disabled:cursor-not-allowed disabled:opacity-40`}
+      className={`flex h-8 w-8 items-center justify-center rounded-xl border transition ${
+        active
+          ? "border-[#8e99ff]/60 bg-[#6f7bf6] text-white shadow-[0_8px_20px_rgba(111,123,246,0.3)]"
+          : "border-white/10 bg-white/4 text-slate-300 hover:bg-white/10 hover:text-white"
+      }`}
     >
-      <Icon className="h-3.5 w-3.5" />
-      <span>{label}</span>
+      <Icon className="h-4 w-4 shrink-0" />
     </button>
   );
 }
