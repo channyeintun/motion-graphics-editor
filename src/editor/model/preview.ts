@@ -1,6 +1,6 @@
 import type { Layer } from "./project";
 
-export type PreviewObjectType = "text" | "shape";
+export type PreviewObjectType = "text" | "shape" | "image";
 
 export type PreviewObject = {
   id: string;
@@ -20,6 +20,7 @@ export type PreviewObject = {
   width?: number;
   height?: number;
   radius?: number;
+  src?: string;
 };
 
 export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObject | null {
@@ -64,6 +65,30 @@ export function toPreviewObject(layer: Layer, includeHidden = false): PreviewObj
       width: object.content.width,
       height: object.content.height,
       radius: object.content.radius,
+    };
+  }
+
+  if (
+    layer.type === "image" &&
+    object.content &&
+    "assetId" in object.content &&
+    "src" in object.content
+  ) {
+    return {
+      id: layer.id,
+      name: layer.name,
+      type: "image",
+      locked: layer.locked,
+      x: object.transform.x,
+      y: object.transform.y,
+      rotation: object.transform.rotation,
+      scaleX: object.transform.scaleX,
+      scaleY: object.transform.scaleY,
+      opacity: object.opacity,
+      color: object.style.color,
+      width: object.content.width,
+      height: object.content.height,
+      src: object.content.src,
     };
   }
 

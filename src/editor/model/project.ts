@@ -32,6 +32,13 @@ export type ShapeContent = {
   radius?: number;
 };
 
+export type ImageContent = {
+  assetId: string;
+  src: string;
+  width: number;
+  height: number;
+};
+
 export type AudioContent = {
   assetId: string;
 };
@@ -45,7 +52,7 @@ export type SceneObject = {
   transform: Transform;
   opacity: number;
   style: ObjectStyle;
-  content?: TextContent | ShapeContent | AudioContent;
+  content?: TextContent | ShapeContent | ImageContent | AudioContent;
 };
 
 export type Keyframe = {
@@ -72,6 +79,8 @@ export type Asset = {
   type: "audio" | "image";
   src: string;
   waveform?: number[];
+  width?: number;
+  height?: number;
 };
 
 export type Layer = {

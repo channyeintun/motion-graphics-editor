@@ -3,6 +3,7 @@ import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
+  Circle,
   Grid2x2,
   Hand,
   Download,
@@ -33,6 +34,7 @@ import { TimelinePanel } from "../editor/timeline/TimelinePanel";
 
 export function AppShell() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const audioElementsRef = useRef(new Map<string, HTMLAudioElement>());
   const playbackTimeRef = useRef(0);
@@ -42,6 +44,9 @@ export function AppShell() {
   const skipHistoryRef = useRef(false);
   const lastProjectRef = useRef<string>("");
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
+  const [interactionMode, setInteractionMode] = useState<"select" | "pan">("select");
+  const [showGuides, setShowGuides] = useState(true);
+  const [showInspectorOverlay, setShowInspectorOverlay] = useState(true);
   const [timelineZoom, setTimelineZoom] = useState(140);
 
   const project = useEditorStore((state) => state.project);
@@ -53,6 +58,7 @@ export function AppShell() {
   const selectedKeyframeId = useEditorStore((state) => state.selectedKeyframeId);
   const addTextLayer = useEditorStore((state) => state.addTextLayer);
   const addShapeLayer = useEditorStore((state) => state.addShapeLayer);
+  const addImageLayer = useEditorStore((state) => state.addImageLayer);
   const addAudioLayer = useEditorStore((state) => state.addAudioLayer);
   const selectLayer = useEditorStore((state) => state.selectLayer);
   const selectClip = useEditorStore((state) => state.selectClip);
@@ -63,8 +69,8 @@ export function AppShell() {
   const reorderLayer = useEditorStore((state) => state.reorderLayer);
   const updateTextLayer = useEditorStore((state) => state.updateTextLayer);
   const updateLayerColor = useEditorStore((state) => state.updateLayerColor);
+  const updateTransformProperty = useEditorStore((state) => state.updateTransformProperty);
   const updateLayerOpacity = useEditorStore((state) => state.updateLayerOpacity);
-  const updateLayerPosition = useEditorStore((state) => state.updateLayerPosition);
   const moveLayerObject = useEditorStore((state) => state.moveLayerObject);
   const replaceProject = useEditorStore((state) => state.replaceProject);
   const moveClip = useEditorStore((state) => state.moveClip);
@@ -101,6 +107,17 @@ export function AppShell() {
 
     return toPreviewObject(sampleLayer(selectedLayer, currentTime), true);
   }, [currentTime, selectedLayer]);
+  const selectedValues = useMemo(
+    () => ({
+      x: selectedObject?.x ?? selectedLayer?.object.transform.x ?? 0,
+      y: selectedObject?.y ?? selectedLayer?.object.transform.y ?? 0,
+      scaleX: selectedObject?.scaleX ?? selectedLayer?.object.transform.scaleX ?? 1,
+      scaleY: selectedObject?.scaleY ?? selectedLayer?.object.transform.scaleY ?? 1,
+      rotation: selectedObject?.rotation ?? selectedLayer?.object.transform.rotation ?? 0,
+      opacity: selectedObject?.opacity ?? selectedLayer?.object.opacity ?? 1,
+    }),
+    [selectedLayer, selectedObject],
+  );
   const selectionLocked = selectedLayer?.locked ?? false;
 
   playbackTimeRef.current = currentTime;
@@ -265,6 +282,25 @@ export function AppShell() {
     event.target.value = "";
   };
 
+  const handleImageImport = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const src = await readFileAsDataUrl(file);
+      const { width, height } = await readImageDimensions(src);
+      const longestSide = Math.max(width, height, 1);
+      const previewWidth = Number(((width / longestSide) * 2.8).toFixed(3));
+      const previewHeight = Number(((height / longestSide) * 2.8).toFixed(3));
+      addImageLayer(file.name.replace(/\.[^.]+$/, ""), src, previewWidth, previewHeight);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const handleAudioImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
@@ -427,6 +463,13 @@ export function AppShell() {
         onChange={handleImport}
       />
       <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleImageImport}
+      />
+      <input
         ref={audioInputRef}
         type="file"
         accept="audio/*"
@@ -440,9 +483,24 @@ export function AppShell() {
 
           <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-[18px] border border-black/10 bg-black/55 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl">
-              <ChromeIconButton icon={Hand} title="Pan viewport" />
-              <ChromeIconButton icon={Monitor} title="Viewport display" />
-              <ChromeIconButton icon={Grid2x2} title="Grid guides" />
+              <ChromeIconButton
+                icon={Hand}
+                title="Pan viewport"
+                onClick={() => setInteractionMode("pan")}
+                active={interactionMode === "pan"}
+              />
+              <ChromeIconButton
+                icon={Monitor}
+                title="Toggle inspector overlay"
+                onClick={() => setShowInspectorOverlay((value) => !value)}
+                active={showInspectorOverlay}
+              />
+              <ChromeIconButton
+                icon={Grid2x2}
+                title="Toggle grid guides"
+                onClick={() => setShowGuides((value) => !value)}
+                active={showGuides}
+              />
             </div>
           </div>
 
@@ -477,6 +535,8 @@ export function AppShell() {
             selectedId={selectedId}
             onSelect={selectLayer}
             onMove={moveLayerObject}
+            interactionMode={interactionMode}
+            showGuides={showGuides}
             onCanvasReady={(canvas) => {
               previewCanvasRef.current = canvas;
             }}
@@ -484,11 +544,29 @@ export function AppShell() {
 
           <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2">
             <div className="flex items-center gap-1 rounded-[20px] border border-black/10 bg-black/75 p-1.5 text-slate-100 shadow-[0_20px_40px_rgba(0,0,0,0.38)] backdrop-blur-xl">
-              <ChromeIconButton icon={MousePointer2} title="Select tool" active />
+              <ChromeIconButton
+                icon={MousePointer2}
+                title="Select tool"
+                onClick={() => setInteractionMode("select")}
+                active={interactionMode === "select"}
+              />
               <div className="mx-1 h-6 w-px bg-white/10" />
-              <ChromeIconButton icon={Square} title="Add shape layer" onClick={addShapeLayer} />
+              <ChromeIconButton
+                icon={Square}
+                title="Add rectangle layer"
+                onClick={() => addShapeLayer("rectangle")}
+              />
+              <ChromeIconButton
+                icon={Circle}
+                title="Add circle layer"
+                onClick={() => addShapeLayer("circle")}
+              />
               <ChromeIconButton icon={Type} title="Add text layer" onClick={addTextLayer} />
-              <ChromeIconButton icon={ImageIcon} title="Image import coming soon" disabled />
+              <ChromeIconButton
+                icon={ImageIcon}
+                title="Import image layer"
+                onClick={() => imageInputRef.current?.click()}
+              />
               <ChromeIconButton
                 icon={Volume2}
                 title="Import audio layer"
@@ -497,7 +575,7 @@ export function AppShell() {
             </div>
           </div>
 
-          {selectedLayer ? (
+          {selectedLayer && showInspectorOverlay ? (
             <div className="absolute bottom-5 right-5 z-20 hidden w-[360px] lg:block">
               <div className="rounded-[24px] border border-white/10 bg-[#101218]/88 p-4 text-sm text-slate-200 shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-xl">
                 <div className="flex items-start justify-between gap-3">
@@ -540,63 +618,6 @@ export function AppShell() {
                       className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
                     />
                   </MiniField>
-                  <MiniField label="Opacity">
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={selectedLayer.object.opacity}
-                      onChange={(event) =>
-                        selectedId && updateLayerOpacity(selectedId, Number(event.target.value))
-                      }
-                      disabled={selectionLocked}
-                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    />
-                  </MiniField>
-                  <MiniField label="X">
-                    <input
-                      type="number"
-                      value={selectedLayer.object.transform.x}
-                      onChange={(event) =>
-                        selectedId &&
-                        updateLayerPosition(
-                          selectedId,
-                          Number(event.target.value),
-                          selectedLayer.object.transform.y,
-                        )
-                      }
-                      disabled={selectionLocked}
-                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    />
-                  </MiniField>
-                  <MiniField label="Y">
-                    <input
-                      type="number"
-                      value={selectedLayer.object.transform.y}
-                      onChange={(event) =>
-                        selectedId &&
-                        updateLayerPosition(
-                          selectedId,
-                          selectedLayer.object.transform.x,
-                          Number(event.target.value),
-                        )
-                      }
-                      disabled={selectionLocked}
-                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
-                    />
-                  </MiniField>
-                  <MiniField label="Color">
-                    <input
-                      type="color"
-                      value={selectedLayer.object.style.color}
-                      onChange={(event) =>
-                        selectedId && updateLayerColor(selectedId, event.target.value)
-                      }
-                      disabled={selectionLocked}
-                      className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
-                    />
-                  </MiniField>
                   <MiniField label="Stack">
                     <div className="flex items-center gap-2">
                       <ChromeIconButton
@@ -615,6 +636,118 @@ export function AppShell() {
                   </MiniField>
                 </div>
 
+                {selectedLayer.type !== "audio" ? (
+                  <>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <MiniField label="Opacity">
+                        <input
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.05"
+                          value={selectedValues.opacity}
+                          onChange={(event) =>
+                            selectedId && updateLayerOpacity(selectedId, Number(event.target.value))
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Color">
+                        <input
+                          type="color"
+                          value={selectedLayer.object.style.color}
+                          onChange={(event) =>
+                            selectedId && updateLayerColor(selectedId, event.target.value)
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="X">
+                        <input
+                          type="number"
+                          value={selectedValues.x}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateTransformProperty(selectedId, "x", Number(event.target.value))
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Y">
+                        <input
+                          type="number"
+                          value={selectedValues.y}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateTransformProperty(selectedId, "y", Number(event.target.value))
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Scale X">
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={selectedValues.scaleX}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateTransformProperty(
+                              selectedId,
+                              "scaleX",
+                              Number(event.target.value),
+                            )
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Scale Y">
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={selectedValues.scaleY}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateTransformProperty(
+                              selectedId,
+                              "scaleY",
+                              Number(event.target.value),
+                            )
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                      <MiniField label="Rotation">
+                        <input
+                          type="number"
+                          step="0.05"
+                          value={selectedValues.rotation}
+                          onChange={(event) =>
+                            selectedId &&
+                            updateTransformProperty(
+                              selectedId,
+                              "rotation",
+                              Number(event.target.value),
+                            )
+                          }
+                          disabled={selectionLocked}
+                          className="h-9 w-full rounded-xl border border-white/8 bg-black/30 px-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        />
+                      </MiniField>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-3 rounded-2xl border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-400">
+                    Audio layers use clip timing and playback controls. Transform and visual
+                    keyframe controls are not shown here.
+                  </div>
+                )}
+
                 {selectedLayer.type === "text" &&
                 selectedLayer.object.content &&
                 "value" in selectedLayer.object.content ? (
@@ -631,31 +764,33 @@ export function AppShell() {
                   </MiniField>
                 ) : null}
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(["x", "y", "scaleX", "scaleY", "rotation", "opacity"] as const).map(
-                    (property) => (
+                {selectedLayer.type !== "audio" ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(["x", "y", "scaleX", "scaleY", "rotation", "opacity"] as const).map(
+                      (property) => (
+                        <button
+                          key={property}
+                          type="button"
+                          onClick={() => selectedId && addKeyframe(selectedId, property)}
+                          disabled={selectionLocked}
+                          className="rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          + {property}
+                        </button>
+                      ),
+                    )}
+                    {selectedKeyframeId ? (
                       <button
-                        key={property}
                         type="button"
-                        onClick={() => selectedId && addKeyframe(selectedId, property)}
+                        onClick={() => deleteKeyframe(selectedKeyframeId)}
                         disabled={selectionLocked}
-                        className="rounded-full border border-white/10 bg-white/6 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        + {property}
+                        Remove keyframe
                       </button>
-                    ),
-                  )}
-                  {selectedKeyframeId ? (
-                    <button
-                      type="button"
-                      onClick={() => deleteKeyframe(selectedKeyframeId)}
-                      disabled={selectionLocked}
-                      className="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      Remove keyframe
-                    </button>
-                  ) : null}
-                </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -793,6 +928,23 @@ function readFileAsDataUrl(file: File) {
       reject(reader.error ?? new Error("Failed to read audio asset."));
     };
     reader.readAsDataURL(file);
+  });
+}
+
+function readImageDimensions(src: string) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      });
+    };
+    image.onerror = () => {
+      reject(new Error("Failed to read image dimensions."));
+    };
+    image.src = src;
   });
 }
 

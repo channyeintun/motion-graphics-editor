@@ -1,6 +1,7 @@
 import { create } from "zustand";
+import { sampleLayer } from "../engine/animationSampler";
 import { createDefaultProject } from "../model/defaultProject";
-import type { Project } from "../model/project";
+import type { AnimatableProperty, Clip, Layer, Project } from "../model/project";
 import { clampClipEdge, clampClipMove, minClipDuration } from "../timeline/timelineMath";
 
 export const STORAGE_KEY = "motion-graphics-editor.project";
@@ -18,7 +19,8 @@ type EditorState = {
   selectKeyframe: (keyframeId: string | null) => void;
   replaceProject: (project: Project) => void;
   addTextLayer: () => void;
-  addShapeLayer: () => void;
+  addShapeLayer: (shape?: "rectangle" | "circle") => void;
+  addImageLayer: (name: string, src: string, width: number, height: number) => void;
   addAudioLayer: (name: string, src: string, waveform: number[], duration: number) => void;
   renameLayer: (layerId: string, name: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
@@ -26,6 +28,11 @@ type EditorState = {
   reorderLayer: (layerId: string, direction: "up" | "down") => void;
   updateTextLayer: (layerId: string, value: string) => void;
   updateLayerColor: (layerId: string, color: string) => void;
+  updateTransformProperty: (
+    layerId: string,
+    property: "x" | "y" | "rotation" | "scaleX" | "scaleY",
+    value: number,
+  ) => void;
   updateLayerOpacity: (layerId: string, opacity: number) => void;
   updateLayerPosition: (layerId: string, x: number, y: number) => void;
   moveLayerObject: (layerId: string, nextX: number, nextY: number) => void;
@@ -62,6 +69,134 @@ function getInitialProject() {
 
 function isLayerLocked(project: Project, layerId: string) {
   return project.layers.some((layer) => layer.id === layerId && layer.locked);
+}
+
+type NumericProperty = Extract<
+  AnimatableProperty,
+  "x" | "y" | "rotation" | "scaleX" | "scaleY" | "opacity"
+>;
+
+function getNumericPropertyValue(layer: Layer, property: NumericProperty) {
+  return property === "opacity" ? layer.object.opacity : layer.object.transform[property];
+}
+
+function withNumericPropertyValue(layer: Layer, property: NumericProperty, value: number): Layer {
+  if (property === "opacity") {
+    return {
+      ...layer,
+      object: {
+        ...layer.object,
+        opacity: value,
+      },
+    };
+  }
+
+  return {
+    ...layer,
+    object: {
+      ...layer.object,
+      transform: {
+        ...layer.object.transform,
+        [property]: value,
+      },
+    },
+  };
+}
+
+function upsertKeyframe(
+  clip: Clip,
+  property: NumericProperty,
+  time: number,
+  value: number,
+): { clip: Clip; keyframeId: string } {
+  const existing = clip.keyframes.find(
+    (keyframe) => keyframe.property === property && Math.abs(keyframe.time - time) < 0.0001,
+  );
+
+  if (existing) {
+    return {
+      clip: {
+        ...clip,
+        keyframes: clip.keyframes.map((keyframe) =>
+          keyframe.id === existing.id ? { ...keyframe, value } : keyframe,
+        ),
+      },
+      keyframeId: existing.id,
+    };
+  }
+
+  const keyframeId = `${clip.id}-${property}-${crypto.randomUUID()}`;
+  return {
+    clip: {
+      ...clip,
+      keyframes: [
+        ...clip.keyframes,
+        {
+          id: keyframeId,
+          time,
+          property,
+          value,
+          easing: "easeInOut",
+        },
+      ],
+    },
+    keyframeId,
+  };
+}
+
+function shouldWriteKeyframe(clip: Clip, property: NumericProperty, time: number) {
+  return (
+    clip.keyframes.some(
+      (keyframe) => keyframe.property === property && Math.abs(keyframe.time - time) < 0.0001,
+    ) || clip.keyframes.some((keyframe) => keyframe.property === property)
+  );
+}
+
+function applyNumericValue(
+  state: EditorState,
+  layerId: string,
+  property: NumericProperty,
+  value: number,
+  forceKeyframe = false,
+) {
+  let selectedKeyframeId = state.selectedKeyframeId;
+
+  const layers = state.project.layers.map((layer) => {
+    if (layer.id !== layerId || layer.locked) {
+      return layer;
+    }
+
+    const clip = layer.clips[0];
+
+    if (
+      clip &&
+      state.currentTime >= clip.start &&
+      state.currentTime <= clip.end &&
+      (forceKeyframe || shouldWriteKeyframe(clip, property, state.currentTime))
+    ) {
+      const { clip: nextClip, keyframeId } = upsertKeyframe(
+        clip,
+        property,
+        state.currentTime,
+        value,
+      );
+      selectedKeyframeId = keyframeId;
+      return {
+        ...layer,
+        clips: [nextClip, ...layer.clips.slice(1)],
+      };
+    }
+
+    return withNumericPropertyValue(layer, property, value);
+  });
+
+  return {
+    project: {
+      ...state.project,
+      layers,
+    },
+    selectedKeyframeId,
+  };
 }
 
 export const useEditorStore = create<EditorState>((set) => ({
@@ -145,7 +280,7 @@ export const useEditorStore = create<EditorState>((set) => ({
       };
     });
   },
-  addShapeLayer: () => {
+  addShapeLayer: (shape = "rectangle") => {
     set((state) => {
       const layerId = `shape-${crypto.randomUUID()}`;
       return {
@@ -162,14 +297,74 @@ export const useEditorStore = create<EditorState>((set) => ({
                 id: `${layerId}-object`,
                 transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
                 opacity: 1,
-                style: { color: "#f97316" },
-                content: { shape: "rectangle", width: 2.2, height: 0.8 },
+                style: { color: shape === "circle" ? "#06b6d4" : "#f97316" },
+                content:
+                  shape === "circle"
+                    ? { shape: "circle", radius: 0.58 }
+                    : { shape: "rectangle", width: 2.2, height: 0.8 },
               },
               clips: [
                 {
                   id: `${layerId}-clip`,
                   layerId,
-                  name: "Shape Clip",
+                  name: shape === "circle" ? "Circle Clip" : "Rectangle Clip",
+                  start: 0,
+                  end: state.project.duration,
+                  enabled: true,
+                  keyframes: [],
+                },
+              ],
+            },
+            ...state.project.layers,
+          ],
+        },
+        selectedLayerIds: [layerId],
+      };
+    });
+  },
+  addImageLayer: (name, src, width, height) => {
+    set((state) => {
+      const assetId = `image-${crypto.randomUUID()}`;
+      const layerId = `image-layer-${crypto.randomUUID()}`;
+
+      return {
+        project: {
+          ...state.project,
+          assets: [
+            {
+              id: assetId,
+              name,
+              type: "image",
+              src,
+              width,
+              height,
+            },
+            ...state.project.assets,
+          ],
+          layers: [
+            {
+              id: layerId,
+              name,
+              type: "image",
+              visible: true,
+              locked: false,
+              object: {
+                id: `${layerId}-object`,
+                transform: { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 },
+                opacity: 1,
+                style: { color: "#ffffff" },
+                content: {
+                  assetId,
+                  src,
+                  width,
+                  height,
+                },
+              },
+              clips: [
+                {
+                  id: `${layerId}-clip`,
+                  layerId,
+                  name: `${name} Image`,
                   start: 0,
                   end: state.project.duration,
                   enabled: true,
@@ -362,67 +557,43 @@ export const useEditorStore = create<EditorState>((set) => ({
       },
     }));
   },
+  updateTransformProperty: (layerId, property, value) => {
+    set((state) => applyNumericValue(state, layerId, property, value));
+  },
   updateLayerOpacity: (layerId, opacity) => {
-    set((state) => ({
-      project: {
-        ...state.project,
-        layers: state.project.layers.map((layer) =>
-          layer.id === layerId && !layer.locked
-            ? {
-                ...layer,
-                object: {
-                  ...layer.object,
-                  opacity,
-                },
-              }
-            : layer,
-        ),
-      },
-    }));
+    set((state) => applyNumericValue(state, layerId, "opacity", opacity));
   },
   updateLayerPosition: (layerId, x, y) => {
-    set((state) => ({
-      project: {
-        ...state.project,
-        layers: state.project.layers.map((layer) =>
-          layer.id === layerId && !layer.locked
-            ? {
-                ...layer,
-                object: {
-                  ...layer.object,
-                  transform: {
-                    ...layer.object.transform,
-                    x,
-                    y,
-                  },
-                },
-              }
-            : layer,
-        ),
-      },
-    }));
+    set((state) => {
+      const withX = applyNumericValue(state, layerId, "x", x);
+      return applyNumericValue(
+        {
+          ...state,
+          ...withX,
+          project: withX.project,
+          selectedKeyframeId: withX.selectedKeyframeId,
+        },
+        layerId,
+        "y",
+        y,
+      );
+    });
   },
   moveLayerObject: (layerId, nextX, nextY) => {
-    set((state) => ({
-      project: {
-        ...state.project,
-        layers: state.project.layers.map((layer) =>
-          layer.id === layerId && !layer.locked
-            ? {
-                ...layer,
-                object: {
-                  ...layer.object,
-                  transform: {
-                    ...layer.object.transform,
-                    x: nextX,
-                    y: nextY,
-                  },
-                },
-              }
-            : layer,
-        ),
-      },
-    }));
+    set((state) => {
+      const withX = applyNumericValue(state, layerId, "x", nextX);
+      return applyNumericValue(
+        {
+          ...state,
+          ...withX,
+          project: withX.project,
+          selectedKeyframeId: withX.selectedKeyframeId,
+        },
+        layerId,
+        "y",
+        nextY,
+      );
+    });
   },
   moveClip: (clipId, nextStart) => {
     set((state) => ({
@@ -470,45 +641,22 @@ export const useEditorStore = create<EditorState>((set) => ({
     }));
   },
   addKeyframe: (layerId, property) => {
-    set((state) => ({
-      project: {
-        ...state.project,
-        layers: state.project.layers.map((layer) => {
-          if (layer.id !== layerId || layer.locked) {
-            return layer;
-          }
+    set((state) => {
+      const layer = state.project.layers.find((candidateLayer) => candidateLayer.id === layerId);
 
-          const clip = layer.clips[0];
+      if (!layer || layer.locked) {
+        return state;
+      }
 
-          if (!clip) {
-            return layer;
-          }
-
-          const value =
-            property === "opacity" ? layer.object.opacity : layer.object.transform[property];
-
-          return {
-            ...layer,
-            clips: [
-              {
-                ...clip,
-                keyframes: [
-                  ...clip.keyframes,
-                  {
-                    id: `${clip.id}-${property}-${crypto.randomUUID()}`,
-                    time: state.currentTime,
-                    property,
-                    value,
-                    easing: "easeInOut",
-                  },
-                ],
-              },
-              ...layer.clips.slice(1),
-            ],
-          };
-        }),
-      },
-    }));
+      const sampledLayer = sampleLayer(layer, state.currentTime);
+      return applyNumericValue(
+        state,
+        layerId,
+        property,
+        getNumericPropertyValue(sampledLayer, property),
+        true,
+      );
+    });
   },
   moveKeyframe: (keyframeId, nextTime) => {
     set((state) => ({

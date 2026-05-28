@@ -1,4 +1,4 @@
-import { Text } from "@react-three/drei";
+import { Text, useTexture } from "@react-three/drei";
 import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { useMemo, useState } from "react";
 import type { PreviewObject } from "../model/preview";
@@ -8,23 +8,37 @@ type PreviewViewportProps = {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onMove: (id: string, nextX: number, nextY: number) => void;
+  interactionMode?: "select" | "pan";
+  showGuides?: boolean;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
 };
 
-type DragState = {
-  id: string;
-  offsetX: number;
-  offsetY: number;
-};
+type DragState =
+  | {
+      type: "move";
+      id: string;
+      offsetX: number;
+      offsetY: number;
+    }
+  | {
+      type: "pan";
+      startX: number;
+      startY: number;
+      originX: number;
+      originY: number;
+    };
 
 export function PreviewViewport({
   objects,
   selectedId,
   onSelect,
   onMove,
+  interactionMode = "select",
+  showGuides = true,
   onCanvasReady,
 }: PreviewViewportProps) {
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [viewportOffset, setViewportOffset] = useState({ x: 0, y: 0 });
   const selectedObject = objects.find((object) => object.id === selectedId) ?? null;
 
   const guideLines = useMemo(
@@ -40,8 +54,16 @@ export function PreviewViewport({
       return;
     }
 
-    const nextX = clamp(event.point.x + dragState.offsetX, -4.25, 4.25);
-    const nextY = clamp(event.point.y + dragState.offsetY, -4.25, 4.25);
+    if (dragState.type === "pan") {
+      setViewportOffset({
+        x: clamp(dragState.originX + (event.point.x - dragState.startX), -2.4, 2.4),
+        y: clamp(dragState.originY + (event.point.y - dragState.startY), -2.2, 2.2),
+      });
+      return;
+    }
+
+    const nextX = clamp(event.point.x + dragState.offsetX - viewportOffset.x, -4.25, 4.25);
+    const nextY = clamp(event.point.y + dragState.offsetY - viewportOffset.y, -4.25, 4.25);
     onMove(dragState.id, snapToCenter(nextX), snapToCenter(nextY));
   };
 
@@ -72,41 +94,59 @@ export function PreviewViewport({
 
           <mesh
             position={[0, 0, -0.1]}
-            onPointerDown={() => onSelect(null)}
+            onPointerDown={(event) => {
+              if (interactionMode === "pan") {
+                setDragState({
+                  type: "pan",
+                  startX: event.point.x,
+                  startY: event.point.y,
+                  originX: viewportOffset.x,
+                  originY: viewportOffset.y,
+                });
+                return;
+              }
+
+              onSelect(null);
+            }}
             onPointerMove={handlePointerMove}
           >
             <planeGeometry args={[9.2, 9.2]} />
             <meshBasicMaterial transparent opacity={0} />
           </mesh>
 
-          {guideLines.map((guideLine, index) => (
-            <mesh key={index} position={guideLine.position} scale={guideLine.scale}>
-              <planeGeometry args={[1, 1]} />
-              <meshBasicMaterial color="#1f2937" transparent opacity={0.08} />
-            </mesh>
-          ))}
+          <group position={[viewportOffset.x, viewportOffset.y, 0]}>
+            {showGuides
+              ? guideLines.map((guideLine, index) => (
+                  <mesh key={index} position={guideLine.position} scale={guideLine.scale}>
+                    <planeGeometry args={[1, 1]} />
+                    <meshBasicMaterial color="#1f2937" transparent opacity={0.08} />
+                  </mesh>
+                ))
+              : null}
 
-          {objects.map((object) => (
-            <PreviewNode
-              key={object.id}
-              object={object}
-              selected={object.id === selectedId}
-              onPointerDown={(event) => {
-                event.stopPropagation();
-                onSelect(object.id);
+            {objects.map((object) => (
+              <PreviewNode
+                key={object.id}
+                object={object}
+                selected={object.id === selectedId}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                  onSelect(object.id);
 
-                if (object.locked) {
-                  return;
-                }
+                  if (interactionMode !== "select" || object.locked) {
+                    return;
+                  }
 
-                setDragState({
-                  id: object.id,
-                  offsetX: object.x - event.point.x,
-                  offsetY: object.y - event.point.y,
-                });
-              }}
-            />
-          ))}
+                  setDragState({
+                    type: "move",
+                    id: object.id,
+                    offsetX: object.x - (event.point.x - viewportOffset.x),
+                    offsetY: object.y - (event.point.y - viewportOffset.y),
+                  });
+                }}
+              />
+            ))}
+          </group>
         </Canvas>
 
         {selectedObject ? (
@@ -147,6 +187,9 @@ function PreviewNode({ object, selected, onPointerDown }: PreviewNodeProps) {
       ) : null}
       {object.type === "shape" ? (
         <PreviewShape object={object} onPointerDown={onPointerDown} />
+      ) : null}
+      {object.type === "image" ? (
+        <PreviewImage object={object} onPointerDown={onPointerDown} />
       ) : null}
     </group>
   );
@@ -195,6 +238,23 @@ function PreviewShape({ object, onPointerDown }: PreviewContentProps) {
   );
 }
 
+function PreviewImage({ object, onPointerDown }: PreviewContentProps) {
+  const texture = useTexture(object.src ?? "");
+
+  return (
+    <mesh onPointerDown={onPointerDown}>
+      <planeGeometry args={[object.width ?? 2.4, object.height ?? 1.35]} />
+      <meshBasicMaterial
+        map={texture}
+        color={object.color}
+        transparent
+        opacity={object.opacity}
+        toneMapped={false}
+      />
+    </mesh>
+  );
+}
+
 function SelectionFrame({ object }: { object: PreviewObject }) {
   const bounds = getObjectBounds(object);
 
@@ -216,6 +276,13 @@ function getObjectBounds(object: PreviewObject) {
     return {
       width: (object.width ?? 2.8) + 0.35,
       height: (object.height ?? 1.1) + 0.35,
+    };
+  }
+
+  if (object.type === "image") {
+    return {
+      width: (object.width ?? 2.4) + 0.2,
+      height: (object.height ?? 1.35) + 0.2,
     };
   }
 
