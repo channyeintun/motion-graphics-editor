@@ -1,54 +1,26 @@
-# Refactoring Plan: Viewport State via XState Store
+# Refactoring Plan: Delete Layer Controls
 
-We are refactoring the viewport interaction state (`interactionMode`, `transformMode`, and `activeDropdown`) from our Zustand store into a dedicated, high-performance, event-driven state container using `@xstate/store` and `@xstate/store-react`.
-
----
-
-## 1. Hybrid State Architecture Design
-
-To keep high-frequency animation ticking separate from user-interaction controls, we use:
-
-1. **Zustand Store**: For project composition, layers, clips, keyframes, and the 60fps timeline scrub.
-2. **XState Store**: For viewport interaction context:
-   - `interactionMode` ("select" | "pan" | "orbit")
-   - `transformMode` ("translate" | "rotate" | "scale")
-   - `activeDropdown` ("select" | "cube" | "shape" | null)
-
-```mermaid
-graph TD
-    subgraph State Management
-        Z[Zustand Store] -->|Animation/Timeline 60fps| V[R3F Canvas Viewport]
-        XS[XState Store] -->|Tool/Dropdown Modes| V
-    end
-```
+We are introducing layer deletion capabilities to the motion graphics editor, adding both store actions, keyboard shortcuts, and visual UI controls.
 
 ---
 
-## 2. Proposed Changes
-
-### [NEW] [viewportStore.ts](file:///Users/channyeintun/Desktop/Motion-Graphics-Editor/src/editor/store/viewportStore.ts)
-
-- Create `viewportStore` using `createStore` from `@xstate/store`.
-- Define transition reducers for `setInteractionMode`, `setTransformMode`, and `setActiveDropdown`.
+## 1. Proposed Changes
 
 ### [MODIFY] [editorStore.ts](file:///Users/channyeintun/Desktop/Motion-Graphics-Editor/src/editor/store/editorStore.ts)
 
-- Remove `interactionMode`, `transformMode`, `setInteractionMode`, and `setTransformMode` types and implementations.
-
-### [MODIFY] [PreviewViewport.tsx](file:///Users/channyeintun/Desktop/Motion-Graphics-Editor/src/editor/preview/PreviewViewport.tsx)
-
-- Import `useSelector` from `@xstate/store-react` and `viewportStore` from `viewportStore.ts`.
-- Read `interactionMode` via `useSelector`.
+- Add `deleteLayer: (layerId: string) => void` to `EditorState` type and store implementation.
+- Filter the deleted layer out of `project.layers`.
+- Clear selection state (`selectedLayerIds`, `selectedClipId`, `selectedKeyframeId`) if they refer to the deleted layer.
 
 ### [MODIFY] [AppShell.tsx](file:///Users/channyeintun/Desktop/Motion-Graphics-Editor/src/app/AppShell.tsx)
 
-- Import `useSelector` from `@xstate/store-react` and `viewportStore` from `viewportStore.ts`.
-- Read `interactionMode`, `transformMode`, and `activeDropdown` via `useSelector`.
-- Dispatch mode changes via `viewportStore.send({ type: '...', ... })`.
+- Import `Trash2` icon from `lucide-react`.
+- In the Selection Inspector panel, next to the lock/visibility buttons, add a premium red-tinted Trash icon button to delete the active layer.
+- In the global keyboard shortcut listener (`keydown`), support pressing `Delete` or `Backspace` to delete the selected layer when no keyframe is selected.
 
 ---
 
-## 3. Verification Plan
+## 2. Verification Plan
 
-- Run `vp check` to ensure total type safety, formatting consistency, and lint compliance.
-- Run `vp build` to build production bundle successfully.
+- Run `vp check` to confirm TypeScript type-safety and syntax correctness.
+- Run `vp build` to build production bundle.

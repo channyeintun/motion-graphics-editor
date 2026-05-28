@@ -31,6 +31,7 @@ type EditorState = {
   addImageLayer: (name: string, src: string, width: number, height: number) => void;
   addAudioLayer: (name: string, src: string, waveform: number[], duration: number) => void;
   renameLayer: (layerId: string, name: string) => void;
+  deleteLayer: (layerId: string) => void;
   toggleLayerVisibility: (layerId: string) => void;
   toggleLayerLock: (layerId: string) => void;
   reorderLayer: (layerId: string, direction: "up" | "down") => void;
@@ -541,6 +542,44 @@ export const useEditorStore = create<EditorState>((set) => ({
             layer.id === layerId ? { ...layer, name } : layer,
           ),
         },
+      };
+    });
+  },
+  deleteLayer: (layerId) => {
+    set((state) => {
+      const remainingLayers = state.project.layers.filter((layer) => layer.id !== layerId);
+
+      // Determine new selection after deletion
+      const wasSelected = state.selectedLayerIds.includes(layerId);
+      let nextSelectedLayerIds = state.selectedLayerIds.filter((id) => id !== layerId);
+
+      if (wasSelected && nextSelectedLayerIds.length === 0 && remainingLayers.length > 0) {
+        // Select the layer that was adjacent to the deleted one
+        const deletedIndex = state.project.layers.findIndex((layer) => layer.id === layerId);
+        const nextLayer = remainingLayers[Math.min(deletedIndex, remainingLayers.length - 1)];
+        nextSelectedLayerIds = nextLayer ? [nextLayer.id] : [];
+      }
+
+      // Clear clip/keyframe selection if they belonged to the deleted layer
+      const deletedLayer = state.project.layers.find((layer) => layer.id === layerId);
+      const deletedClipIds = new Set(deletedLayer?.clips.map((clip) => clip.id) ?? []);
+      const nextClipId = deletedClipIds.has(state.selectedClipId ?? "")
+        ? null
+        : state.selectedClipId;
+      const nextKeyframeId = deletedLayer?.clips
+        .flatMap((clip) => clip.keyframes)
+        .some((kf) => kf.id === state.selectedKeyframeId)
+        ? null
+        : state.selectedKeyframeId;
+
+      return {
+        project: {
+          ...state.project,
+          layers: remainingLayers,
+        },
+        selectedLayerIds: nextSelectedLayerIds,
+        selectedClipId: nextClipId,
+        selectedKeyframeId: nextKeyframeId,
       };
     });
   },

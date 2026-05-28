@@ -23,6 +23,7 @@ import {
   Repeat,
   Save,
   Square,
+  Trash2,
   Type,
   Undo2,
   Volume2,
@@ -72,6 +73,7 @@ export function AppShell() {
   const selectClip = useEditorStore((state) => state.selectClip);
   const selectKeyframe = useEditorStore((state) => state.selectKeyframe);
   const renameLayer = useEditorStore((state) => state.renameLayer);
+  const deleteLayer = useEditorStore((state) => state.deleteLayer);
   const toggleLayerVisibility = useEditorStore((state) => state.toggleLayerVisibility);
   const toggleLayerLock = useEditorStore((state) => state.toggleLayerLock);
   const reorderLayer = useEditorStore((state) => state.reorderLayer);
@@ -448,9 +450,18 @@ export function AppShell() {
         return;
       }
 
-      if ((event.key === "Delete" || event.key === "Backspace") && selectedKeyframeId) {
+      if (event.key === "Delete" || event.key === "Backspace") {
+        const tag = (event.target as HTMLElement)?.tagName;
+        const isEditing =
+          tag === "INPUT" || tag === "TEXTAREA" || (event.target as HTMLElement)?.isContentEditable;
+        if (isEditing) return;
+
         event.preventDefault();
-        deleteKeyframe(selectedKeyframeId);
+        if (selectedKeyframeId) {
+          deleteKeyframe(selectedKeyframeId);
+        } else if (selectedId) {
+          deleteLayer(selectedId);
+        }
       }
     };
 
@@ -459,7 +470,16 @@ export function AppShell() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [deleteKeyframe, isPlaying, redoProject, selectedKeyframeId, setPlaying, undoProject]);
+  }, [
+    deleteKeyframe,
+    deleteLayer,
+    isPlaying,
+    redoProject,
+    selectedId,
+    selectedKeyframeId,
+    setPlaying,
+    undoProject,
+  ]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#ddd9d2_0%,_#b8b2ab_42%,_#0d0f14_100%)] text-slate-100">
@@ -772,6 +792,11 @@ export function AppShell() {
                       icon={selectedLayer.locked ? Lock : LockOpen}
                       title={selectedLayer.locked ? "Unlock layer" : "Lock layer"}
                       onClick={() => selectedId && toggleLayerLock(selectedId)}
+                    />
+                    <ChromeIconButton
+                      icon={Trash2}
+                      title="Delete layer"
+                      onClick={() => selectedId && deleteLayer(selectedId)}
                     />
                   </div>
                 </div>
