@@ -3,7 +3,9 @@ import type { ChangeEvent, ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  Circle,
+  Boxes,
+  Camera,
+  ChevronDown,
   Grid2x2,
   Hand,
   Download,
@@ -44,10 +46,15 @@ export function AppShell() {
   const skipHistoryRef = useRef(false);
   const lastProjectRef = useRef<string>("");
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
-  const [interactionMode, setInteractionMode] = useState<"select" | "pan">("select");
   const [showGuides, setShowGuides] = useState(true);
   const [showInspectorOverlay, setShowInspectorOverlay] = useState(true);
   const [timelineZoom, setTimelineZoom] = useState(140);
+  const [activeDropdown, setActiveDropdown] = useState<"select" | "cube" | "shape" | null>(null);
+
+  const interactionMode = useEditorStore((state) => state.interactionMode);
+  const transformMode = useEditorStore((state) => state.transformMode);
+  const setInteractionMode = useEditorStore((state) => state.setInteractionMode);
+  const setTransformMode = useEditorStore((state) => state.setTransformMode);
 
   const project = useEditorStore((state) => state.project);
   const currentTime = useEditorStore((state) => state.currentTime);
@@ -58,6 +65,7 @@ export function AppShell() {
   const selectedKeyframeId = useEditorStore((state) => state.selectedKeyframeId);
   const addTextLayer = useEditorStore((state) => state.addTextLayer);
   const addShapeLayer = useEditorStore((state) => state.addShapeLayer);
+  const add3DModelLayer = useEditorStore((state) => state.add3DModelLayer);
   const addImageLayer = useEditorStore((state) => state.addImageLayer);
   const addAudioLayer = useEditorStore((state) => state.addAudioLayer);
   const selectLayer = useEditorStore((state) => state.selectLayer);
@@ -482,25 +490,42 @@ export function AppShell() {
           <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,_rgba(255,255,255,0.28),_transparent)]" />
 
           <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
-            <div className="flex items-center gap-1 rounded-[18px] border border-black/10 bg-black/55 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.28)] backdrop-blur-xl">
-              <ChromeIconButton
-                icon={Hand}
-                title="Pan viewport"
-                onClick={() => setInteractionMode("pan")}
-                active={interactionMode === "pan"}
-              />
-              <ChromeIconButton
-                icon={Monitor}
-                title="Toggle inspector overlay"
-                onClick={() => setShowInspectorOverlay((value) => !value)}
-                active={showInspectorOverlay}
-              />
-              <ChromeIconButton
-                icon={Grid2x2}
-                title="Toggle grid guides"
+            <div className="flex items-center rounded-full bg-black/75 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.32)] backdrop-blur-xl border border-white/5">
+              <button
+                type="button"
+                onClick={() => setInteractionMode(interactionMode === "pan" ? "select" : "pan")}
+                className={`flex h-8 px-3 items-center justify-center rounded-full transition-all ${interactionMode === "pan" ? "bg-white/16 text-white font-medium" : "text-slate-400 hover:text-slate-200"}`}
+                title="Pan tool (Hand)"
+              >
+                <Hand className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setInteractionMode(interactionMode === "orbit" ? "select" : "orbit")}
+                className={`flex h-8 px-3 items-center justify-center rounded-full transition-all ${interactionMode === "orbit" ? "bg-white/16 text-white font-medium" : "text-slate-400 hover:text-slate-200"}`}
+                title="Camera orbit tool (Camera)"
+              >
+                <Camera className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1 rounded-2xl bg-black/75 p-1 shadow-[0_12px_32px_rgba(0,0,0,0.32)] backdrop-blur-xl border border-white/5">
+              <button
+                type="button"
                 onClick={() => setShowGuides((value) => !value)}
-                active={showGuides}
-              />
+                className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${showGuides ? "text-white bg-white/10" : "text-slate-400 hover:text-slate-200"}`}
+                title="Toggle grid guides"
+              >
+                <Grid2x2 className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInspectorOverlay((value) => !value)}
+                className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${showInspectorOverlay ? "text-white bg-white/10" : "text-slate-400 hover:text-slate-200"}`}
+                title="Toggle inspector overlay"
+              >
+                <Monitor className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
@@ -542,36 +567,158 @@ export function AppShell() {
             }}
           />
 
-          <div className="absolute bottom-5 left-1/2 z-20 -translate-x-1/2">
-            <div className="flex items-center gap-1 rounded-[20px] border border-black/10 bg-black/75 p-1.5 text-slate-100 shadow-[0_20px_40px_rgba(0,0,0,0.38)] backdrop-blur-xl">
-              <ChromeIconButton
-                icon={MousePointer2}
-                title="Select tool"
-                onClick={() => setInteractionMode("select")}
-                active={interactionMode === "select"}
-              />
-              <div className="mx-1 h-6 w-px bg-white/10" />
-              <ChromeIconButton
-                icon={Square}
-                title="Add rectangle layer"
-                onClick={() => addShapeLayer("rectangle")}
-              />
-              <ChromeIconButton
-                icon={Circle}
-                title="Add circle layer"
-                onClick={() => addShapeLayer("circle")}
-              />
-              <ChromeIconButton icon={Type} title="Add text layer" onClick={addTextLayer} />
-              <ChromeIconButton
-                icon={ImageIcon}
-                title="Import image layer"
-                onClick={() => imageInputRef.current?.click()}
-              />
-              <ChromeIconButton
-                icon={Volume2}
-                title="Import audio layer"
-                onClick={() => audioInputRef.current?.click()}
-              />
+          <div className="absolute bottom-5 left-1/2 z-30 -translate-x-1/2">
+            <div className="relative">
+              <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-black/75 p-1.5 text-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+                {/* Select Tool with dropdown */}
+                <div className="relative flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInteractionMode("select");
+                      setActiveDropdown(activeDropdown === "select" ? null : "select");
+                    }}
+                    className={`flex h-9 items-center gap-1 rounded-full pl-3 pr-2.5 transition ${interactionMode === "select" ? "bg-[#6f7bf6] text-white shadow-[0_4px_12px_rgba(111,123,246,0.35)] font-semibold" : "text-slate-300 hover:bg-white/5"}`}
+                    title="Select and Transform Tool"
+                  >
+                    <MousePointer2 className="h-4 w-4" />
+                    <span className="text-[10px] uppercase tracking-wider">{transformMode}</span>
+                    <ChevronDown className="h-3 w-3 opacity-60" />
+                  </button>
+
+                  {activeDropdown === "select" ? (
+                    <div className="absolute bottom-12 left-0 z-50 flex w-36 flex-col gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransformMode("translate");
+                          setActiveDropdown(null);
+                        }}
+                        className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "translate" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
+                      >
+                        Translate (Move)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransformMode("rotate");
+                          setActiveDropdown(null);
+                        }}
+                        className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "rotate" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
+                      >
+                        Rotate
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTransformMode("scale");
+                          setActiveDropdown(null);
+                        }}
+                        className={`flex h-8 items-center rounded-xl px-2.5 text-left text-xs transition ${transformMode === "scale" ? "bg-white/10 text-white font-medium" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
+                      >
+                        Scale
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="h-5 w-px bg-white/10" />
+
+                {/* 3D Shapes (Cube) Dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === "cube" ? null : "cube")}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full transition ${activeDropdown === "cube" ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5"}`}
+                    title="Add 3D mesh layer"
+                  >
+                    <Boxes className="h-4.5 w-4.5" />
+                  </button>
+
+                  {activeDropdown === "cube" ? (
+                    <div className="absolute bottom-12 left-1/2 z-50 flex w-36 -translate-x-1/2 flex-col gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                      {(["cube", "sphere", "cylinder", "cone", "torus"] as const).map((shape) => (
+                        <button
+                          key={shape}
+                          type="button"
+                          onClick={() => {
+                            add3DModelLayer(shape);
+                            setActiveDropdown(null);
+                          }}
+                          className="flex h-8 items-center rounded-xl px-2.5 text-left text-xs text-slate-400 transition hover:bg-white/5 hover:text-white capitalize"
+                        >
+                          {shape} 3D
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Text Layer */}
+                <button
+                  type="button"
+                  onClick={addTextLayer}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/5 hover:text-white"
+                  title="Add text layer"
+                >
+                  <Type className="h-4.5 w-4.5" />
+                </button>
+
+                {/* Image upload */}
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/5 hover:text-white"
+                  title="Import image layer"
+                >
+                  <ImageIcon className="h-4.5 w-4.5" />
+                </button>
+
+                {/* Audio upload */}
+                <button
+                  type="button"
+                  onClick={() => audioInputRef.current?.click()}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/5 hover:text-white"
+                  title="Import audio layer"
+                >
+                  <Volume2 className="h-4.5 w-4.5" />
+                </button>
+
+                <div className="h-5 w-px bg-white/10" />
+
+                {/* 2D Shapes Dropdown */}
+                <div className="relative flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setActiveDropdown(activeDropdown === "shape" ? null : "shape")}
+                    className={`flex h-9 items-center gap-0.5 rounded-full pl-2.5 pr-1.5 transition ${activeDropdown === "shape" ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5"}`}
+                    title="Add 2D shape layer"
+                  >
+                    <Square className="h-4 w-4" />
+                    <ChevronDown className="h-3 w-3 opacity-60" />
+                  </button>
+
+                  {activeDropdown === "shape" ? (
+                    <div className="absolute bottom-12 right-0 z-50 flex w-36 flex-col gap-1 rounded-2xl border border-white/10 bg-black/88 p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)] backdrop-blur-xl">
+                      {(["rectangle", "circle", "triangle", "star", "polygon"] as const).map(
+                        (shape) => (
+                          <button
+                            key={shape}
+                            type="button"
+                            onClick={() => {
+                              addShapeLayer(shape);
+                              setActiveDropdown(null);
+                            }}
+                            className="flex h-8 items-center rounded-xl px-2.5 text-left text-xs text-slate-400 transition hover:bg-white/5 hover:text-white capitalize"
+                          >
+                            {shape}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </div>
 

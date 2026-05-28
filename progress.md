@@ -17,13 +17,13 @@ This document tracks our progress during the execution of the implementation pla
   - [x] Implement new 2D shapes (Triangle, Star, Polygon) in the previewer.
   - [x] Implement Camera Orbit controls when `interactionMode === "orbit"` in `PreviewViewport.tsx`.
   - [x] Render proper 3D selection indicators and wireframes.
-- [ ] **Task 4: Redesign UI Toolbar & Glassmorphic Dropdowns**
-  - [ ] Build the Navigation Group capsule (Hand, Orbit Camera) on the left.
-  - [ ] Build the layout/grid capsule in the viewport.
-  - [ ] Build the select tool dropdown selector (Translate, Rotate, Scale) in the middle.
-  - [ ] Build the Cube tool (3D shape dropdown selector).
-  - [ ] Build the Shape tool (2D shape dropdown selector).
-  - [ ] Polish styling, transitions, glassmorphic dropdown list, and high-fidelity visuals.
+- [x] **Task 4: Redesign UI Toolbar & Glassmorphic Dropdowns**
+  - [x] Build the Navigation Group capsule (Hand, Orbit Camera) on the left.
+  - [x] Build the layout/grid capsule in the viewport.
+  - [x] Build the select tool dropdown selector (Translate, Rotate, Scale) in the middle.
+  - [x] Build the Cube tool (3D shape dropdown selector).
+  - [x] Build the Shape tool (2D shape dropdown selector).
+  - [x] Polish styling, transitions, glassmorphic dropdown list, and high-fidelity visuals.
 - [ ] **Task 5: Verification & Polish**
   - [ ] Ensure formatting (`vp fmt`) and lint checks (`vp check`) pass.
   - [ ] Perform manual visual sanity checks.
